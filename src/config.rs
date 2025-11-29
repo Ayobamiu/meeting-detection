@@ -50,16 +50,30 @@ pub fn get_meeting_window_patterns() -> Vec<&'static str> {
 pub fn get_meeting_url_patterns() -> Vec<&'static str> {
     vec![
         // Google Meet
-        "meet.google.com",
-        // Teams (web)
+        // Host: https://meet.google.com/cih-fjjf-pfd?authuser=4&pageId=none&pli=1
+        // Visitor: https://meet.google.com/cih-fjjf-pfd
+        "meet.google.com/",
+        
+        // Microsoft Teams (web)
+        // Host: https://teams.live.com/v2/
+        // Visitor: https://teams.live.com/light-meetings/launch?p=...
+        "teams.live.com/v2/",
+        "teams.live.com/light-meetings/launch",
         "teams.microsoft.com/_#/meet",
         "teams.microsoft.com/_#/conversations",
-        "teams.live.com",
+        
         // Zoom (web)
         "zoom.us/j/",
         "zoom.us/s/",
         "zoom.us/wc/",
+        
         // Webex (web)
+        // Host: https://web.webex.com/meetings?autosignin=...
+        // Visitor in meeting: https://meet*.webex.com/wbxmjs/joinservice/...
+        // Visitor after meeting: https://meet*.webex.com/webappng/...
+        "web.webex.com/meetings",
+        ".webex.com/wbxmjs/joinservice",  // Visitor in meeting (handles subdomains like meet1655.webex.com)
+        ".webex.com/webappng",            // Visitor dashboard (after meeting)
         "webex.com/webapp",
         "webex.com/meet",
         "meetings.webex.com",
@@ -153,7 +167,6 @@ pub fn is_browser_process_pattern(process_name: &str) -> bool {
 
 /// Check if a process is a browser on macOS using bundle categories
 /// Uses `mdls` to check if the app's bundle category includes browser categories
-#[cfg(target_os = "macos")]
 pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> {
     use log::info;
     use std::process::Command;
@@ -325,23 +338,10 @@ pub fn filter_browser_processes(
 ) -> Result<Vec<String>, DetectionError> {
     let mut browsers = Vec::new();
     
-    #[cfg(target_os = "macos")]
-    {
-        // Use macOS bundle categories
-        for process in processes {
-            if is_browser_process_macos(process)? {
-                browsers.push(process.clone());
-            }
-        }
-    }
-    
-    #[cfg(not(target_os = "macos"))]
-    {
-        // Use pattern matching for Windows/Linux
-        for process in processes {
-            if is_browser_process_pattern(process) {
-                browsers.push(process.clone());
-            }
+    // Use macOS bundle categories
+    for process in processes {
+        if is_browser_process_macos(process)? {
+            browsers.push(process.clone());
         }
     }
     

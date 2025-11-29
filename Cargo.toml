@@ -2,7 +2,7 @@
 name = "meeting-detection"
 version = "0.1.0"
 edition = "2021"
-description = "Cross-platform meeting detection engine for Electron/Node.js"
+description = "macOS meeting detection engine for Electron/Node.js"
 license = "MIT"
 repository = ""
 
@@ -24,19 +24,10 @@ env_logger = "0.11"
 # Error handling
 thiserror = "1.0"
 
-# Cross-platform process detection
+# Process detection
 sysinfo = "0.30"
 
 # Note: For v1, we use simple string matching. Regex can be added later if needed.
-
-[target.'cfg(target_os = "macos")'.dependencies]
-# Note: For v1, we use simplified detection. CoreAudio/AVFoundation can be added later.
-
-[target.'cfg(target_os = "windows")'.dependencies]
-# Note: For v1, we use PowerShell scripts. WinAPI can be added later for better performance.
-
-[target.'cfg(target_os = "linux")'.dependencies]
-# Note: For v1, we use xdotool/wmctrl. PulseAudio can be added later for mic detection.
 
 [build-dependencies]
 napi-build = "2.3.1"

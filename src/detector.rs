@@ -104,15 +104,8 @@ impl MeetingDetector {
             .any(|window| is_meeting_window(window));
 
         // Check browser tab URLs (for browser-based meetings)
-        // This is a standalone function call since it's not in the trait yet
-        #[cfg(target_os = "macos")]
-        {
-            use crate::platform::get_browser_tab_urls;
-            if let Ok(browser_urls) = get_browser_tab_urls() {
-                // URLs are already logged inside get_browser_tab_urls()
-                // This ensures the function is called and URLs are logged
-            }
-        }
+        use crate::platform::get_browser_tab_urls;
+        let _ = get_browser_tab_urls(); // URLs are already logged inside get_browser_tab_urls()
 
         // Calculate weighted score
         let mut score = 0;

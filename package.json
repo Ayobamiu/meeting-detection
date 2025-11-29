@@ -1,7 +1,7 @@
 {
   "name": "meeting-detection",
   "version": "0.1.0",
-  "description": "Cross-platform meeting detection engine for Electron/Node.js",
+  "description": "macOS meeting detection engine for Electron/Node.js",
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
@@ -31,4 +31,3 @@
     }
   }
 }
-

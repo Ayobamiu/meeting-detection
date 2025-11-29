@@ -1,14 +1,10 @@
-// Platform abstraction layer
-// This trait defines what each platform must implement
+// Platform abstraction layer for macOS
 
 mod macos;
-mod windows;
-mod linux;
 
 use crate::error::DetectionError;
 
-/// Platform-specific implementation trait
-/// Each platform (macOS, Windows, Linux) implements this trait
+/// Platform-specific implementation trait for macOS
 pub trait PlatformDetector: Send + Sync {
     /// Check if microphone is currently in use
     fn is_microphone_active(&self) -> Result<bool, DetectionError>;
@@ -23,40 +19,25 @@ pub trait PlatformDetector: Send + Sync {
     fn get_visible_windows(&self) -> Result<Vec<String>, DetectionError>;
 }
 
-/// Create the appropriate platform detector based on the current OS
+/// Create the macOS platform detector
 pub fn create_platform_detector() -> Result<Box<dyn PlatformDetector>, DetectionError> {
     #[cfg(target_os = "macos")]
     {
         Ok(Box::new(macos::MacOSDetector::new()?))
     }
     
-    #[cfg(target_os = "windows")]
-    {
-        Ok(Box::new(windows::WindowsDetector::new()?))
-    }
-    
-    #[cfg(target_os = "linux")]
-    {
-        Ok(Box::new(linux::LinuxDetector::new()?))
-    }
-    
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    #[cfg(not(target_os = "macos"))]
     {
         Err(DetectionError::PlatformNotSupported(
-            std::env::consts::OS.to_string(),
+            format!("This library only supports macOS. Current OS: {}", std::env::consts::OS),
         ))
     }
 }
 
-// Re-export platform modules for testing
-#[cfg(test)]
-pub use macos::MacOSDetector;
-#[cfg(test)]
-pub use windows::WindowsDetector;
-#[cfg(test)]
-pub use linux::LinuxDetector;
+// Re-export platform modules for testing (if needed)
+// #[cfg(test)]
+// pub use macos::MacOSDetector;
 
 // Export platform-specific helper functions
-#[cfg(target_os = "macos")]
 pub use macos::get_browser_tab_urls;
 
