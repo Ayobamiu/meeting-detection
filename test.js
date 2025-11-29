@@ -1,0 +1,47 @@
+// Simple test file for meeting detection
+
+const { isMeetingActive, onMeetingStart, onMeetingEnd, init } = require('./index');
+
+console.log('🧪 Testing Meeting Detection Engine\n');
+
+// Initialize
+console.log('Initializing engine...');
+init();
+
+// Test current status
+console.log('\n📊 Current Status:');
+const active = isMeetingActive();
+console.log(`Meeting active: ${active ? '✅ YES' : '❌ NO'}`);
+
+// Register event handlers
+console.log('\n🎧 Registering event handlers...');
+
+onMeetingStart(() => {
+  console.log('\n🎥 [EVENT] Meeting started!');
+  console.log('   Timestamp:', new Date().toISOString());
+});
+
+onMeetingEnd(() => {
+  console.log('\n✅ [EVENT] Meeting ended!');
+  console.log('   Timestamp:', new Date().toISOString());
+});
+
+console.log('✅ Event handlers registered');
+console.log('\n⏳ Monitoring for meeting changes...');
+console.log('   (Polling every 2 seconds)');
+console.log('   Press Ctrl+C to exit\n');
+
+// Poll status every 5 seconds for visibility
+setInterval(() => {
+  const status = isMeetingActive();
+  const emoji = status ? '🎥' : '💤';
+  const text = status ? 'ACTIVE' : 'inactive';
+  process.stdout.write(`\r${emoji} Status: ${text} (${new Date().toLocaleTimeString()})`);
+}, 5000);
+
+// Keep process alive
+process.on('SIGINT', () => {
+  console.log('\n\n👋 Shutting down...');
+  process.exit(0);
+});
+

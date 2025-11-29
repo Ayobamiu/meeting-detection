@@ -1,0 +1,34 @@
+{
+  "name": "meeting-detection",
+  "version": "0.1.0",
+  "description": "Cross-platform meeting detection engine for Electron/Node.js",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "install": "napi build --platform --release",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "meeting",
+    "detection",
+    "zoom",
+    "teams",
+    "electron",
+    "napi"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@napi-rs/cli": "^2.16.0"
+  },
+  "napi": {
+    "name": "meeting-detection",
+    "triples": {
+      "defaults": true,
+      "additional": []
+    }
+  }
+}
+
