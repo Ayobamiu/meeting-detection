@@ -3,7 +3,7 @@
 use crate::config::{is_meeting_process, is_meeting_window};
 use crate::error::DetectionError;
 use crate::platform::PlatformDetector;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use std::sync::{Arc, Mutex};
 
 /// Detection scores for weighted decision logic
@@ -24,6 +24,7 @@ pub enum MeetingState {
 #[derive(Debug, Clone)]
 pub struct DetectionResult {
     pub meeting_app_detected: bool,
+    pub meeting_app_name: Option<String>,
     pub meeting_window_detected: bool,
     pub microphone_active: bool,
     pub camera_active: bool,
@@ -74,24 +75,31 @@ impl MeetingDetector {
             });
 
         // Check for meeting apps in running processes
-        let meeting_app_detected = self
-            .platform
-            .get_running_processes()
-            .unwrap_or_else(|e| {
-                debug!("Process detection error: {}", e);
-                Vec::new()
-            })
+        let processes = self.platform.get_running_processes().unwrap_or_else(|e| {
+            debug!("Process detection error: {}", e);
+            Vec::new()
+        });
+
+        // Process logging removed - too noisy. Use RUST_LOG=debug if needed.
+
+        // Find the first matching meeting app and capture its name
+        let meeting_app_name = processes
             .iter()
-            .any(|process| is_meeting_process(process));
+            .find(|process| is_meeting_process(process))
+            .map(|s| s.clone());
+        
+        let meeting_app_detected = meeting_app_name.is_some();
 
         // Check for meeting windows
-        let meeting_window_detected = self
-            .platform
-            .get_visible_windows()
-            .unwrap_or_else(|e| {
-                debug!("Window detection error: {}", e);
-                Vec::new()
-            })
+        let windows = self.platform.get_visible_windows().unwrap_or_else(|e| {
+            debug!("Window detection error: {}", e);
+            Vec::new()
+        });
+
+        // Log all visible window titles for introspection
+        info!("Visible windows ({}): {:?}", windows.len(), windows);
+
+        let meeting_window_detected = windows
             .iter()
             .any(|window| is_meeting_window(window));
 
@@ -119,6 +127,7 @@ impl MeetingDetector {
 
         Ok(DetectionResult {
             meeting_app_detected,
+            meeting_app_name,
             meeting_window_detected,
             microphone_active,
             camera_active,
@@ -127,8 +136,10 @@ impl MeetingDetector {
         })
     }
 
-    /// Check if state changed and return the new state
-    pub fn check_state_change(&self) -> Result<Option<MeetingState>, DetectionError> {
+    /// Perform detection and also compute state change in one pass
+    pub fn detect_with_state(
+        &self,
+    ) -> Result<(DetectionResult, Option<MeetingState>), DetectionError> {
         let result = self.detect()?;
         let new_state = if result.is_meeting_active {
             MeetingState::Active
@@ -139,12 +150,20 @@ impl MeetingDetector {
         let mut previous = self.previous_state.lock().unwrap();
         let previous_state = *previous;
 
-        if new_state != previous_state {
+        let state_change = if new_state != previous_state {
             *previous = new_state;
-            Ok(Some(new_state))
+            Some(new_state)
         } else {
-            Ok(None)
-        }
+            None
+        };
+
+        Ok((result, state_change))
+    }
+
+    /// Check if state changed and return the new state
+    pub fn check_state_change(&self) -> Result<Option<MeetingState>, DetectionError> {
+        let (_result, state_change) = self.detect_with_state()?;
+        Ok(state_change)
     }
 
     /// Get current meeting state without triggering state change

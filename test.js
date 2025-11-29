@@ -1,6 +1,6 @@
 // Simple test file for meeting detection
 
-const { isMeetingActive, onMeetingStart, onMeetingEnd, init } = require('./index');
+const { isMeetingActive, onMeetingStart, onMeetingEnd, init, getLastDetectionDetails } = require('./index');
 
 console.log('🧪 Testing Meeting Detection Engine\n');
 
@@ -31,13 +31,17 @@ console.log('\n⏳ Monitoring for meeting changes...');
 console.log('   (Polling every 2 seconds)');
 console.log('   Press Ctrl+C to exit\n');
 
-// Poll status every 5 seconds for visibility
+// Poll status every 3 seconds for visibility
 setInterval(() => {
   const status = isMeetingActive();
   const emoji = status ? '🎥' : '💤';
   const text = status ? 'ACTIVE' : 'inactive';
+  console.log('-----------------ACTIVITY LOG---------------');
+  const lastDetectionDetails = getLastDetectionDetails();
+  console.log(lastDetectionDetails);
   process.stdout.write(`\r${emoji} Status: ${text} (${new Date().toLocaleTimeString()})`);
-}, 5000);
+  console.log('\n-----------------ACTIVITY LOG---------------');
+}, 3000);
 
 // Keep process alive
 process.on('SIGINT', () => {
