@@ -46,6 +46,34 @@ pub fn get_meeting_window_patterns() -> Vec<&'static str> {
     ]
 }
 
+/// Meeting URL patterns for browser-based meetings
+pub fn get_meeting_url_patterns() -> Vec<&'static str> {
+    vec![
+        // Google Meet
+        "meet.google.com",
+        // Teams (web)
+        "teams.microsoft.com/_#/meet",
+        "teams.microsoft.com/_#/conversations",
+        "teams.live.com",
+        // Zoom (web)
+        "zoom.us/j/",
+        "zoom.us/s/",
+        "zoom.us/wc/",
+        // Webex (web)
+        "webex.com/webapp",
+        "webex.com/meet",
+        "meetings.webex.com",
+    ]
+}
+
+/// Check if a URL matches any meeting pattern
+pub fn is_meeting_url(url: &str) -> bool {
+    let url_lower = url.to_lowercase();
+    get_meeting_url_patterns()
+        .iter()
+        .any(|&pattern| url_lower.contains(pattern))
+}
+
 /// Check if a process name matches any meeting app
 pub fn is_meeting_process(process_name: &str) -> bool {
     let process_lower = process_name.to_lowercase();
@@ -115,7 +143,7 @@ pub fn get_browser_process_names() -> Vec<&'static str> {
     ]
 }
 
-/// Check if a process name matches any browser (pattern-based, for non-macOS)
+/// Check if a process name matches any browser (pattern-based, fallback for all platforms)
 pub fn is_browser_process_pattern(process_name: &str) -> bool {
     let process_lower = process_name.to_lowercase();
     get_browser_process_names()
@@ -126,7 +154,7 @@ pub fn is_browser_process_pattern(process_name: &str) -> bool {
 /// Check if a process is a browser on macOS using bundle categories
 /// Uses `mdls` to check if the app's bundle category includes browser categories
 #[cfg(target_os = "macos")]
-fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> {
+pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> {
     use log::info;
     use std::process::Command;
     
@@ -176,22 +204,37 @@ fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> 
     
     if let Ok(output) = category_output {
         if output.status.success() {
-            let category_str = String::from_utf8_lossy(&output.stdout);
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            
+            // Parse mdls output: "kMDItemAppStoreCategoryType = "value"" or "kMDItemAppStoreCategoryType = (null)"
+            let category_value = if let Some(equals_pos) = output_str.find('=') {
+                let value_part = output_str[equals_pos + 1..].trim();
+                // Remove quotes if present
+                value_part.trim_matches('"').trim()
+            } else {
+                output_str.trim()
+            };
             
             // Log the category so you can learn from it
-            info!("Process '{}' category: {}", process_name, category_str.trim());
+            if category_value != "(null)" && !category_value.is_empty() {
+                info!("Process '{}' category type: {}", process_name, category_value);
+            } else {
+                info!("Process '{}' category type: (null)", process_name);
+            }
             
             // Check for browser-related categories
             // Common categories: "public.app-category.web-browsers", "public.app-category.productivity"
-            let category_lower = category_str.to_lowercase();
+            let category_lower = category_value.to_lowercase();
             let browser_category_patterns = [
                 "web-browser",
                 "web-browsers",
                 "browser",
             ];
             
-            if browser_category_patterns.iter().any(|pattern| category_lower.contains(pattern)) {
-                return Ok(true);
+            if category_value != "(null)" && !category_value.is_empty() {
+                if browser_category_patterns.iter().any(|pattern| category_lower.contains(pattern)) {
+                    return Ok(true);
+                }
             }
         }
     }
@@ -205,12 +248,27 @@ fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> 
     
     if let Ok(output) = category_name_output {
         if output.status.success() {
-            let category_name = String::from_utf8_lossy(&output.stdout);
-            info!("Process '{}' category name: {}", process_name, category_name.trim());
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            
+            // Parse mdls output to extract just the value
+            let category_name = if let Some(equals_pos) = output_str.find('=') {
+                let value_part = output_str[equals_pos + 1..].trim();
+                value_part.trim_matches('"').trim()
+            } else {
+                output_str.trim()
+            };
+            
+            if category_name != "(null)" && !category_name.is_empty() {
+                info!("Process '{}' category name: {}", process_name, category_name);
+            } else {
+                info!("Process '{}' category name: (null)", process_name);
+            }
             
             let category_lower = category_name.to_lowercase();
-            if category_lower.contains("browser") || category_lower.contains("web") {
-                return Ok(true);
+            if category_name != "(null)" && !category_name.is_empty() {
+                if category_lower.contains("browser") || category_lower.contains("web") {
+                    return Ok(true);
+                }
             }
         }
     }
@@ -224,8 +282,17 @@ fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> 
     
     if let Ok(output) = bundle_id_output {
         if output.status.success() {
-            let bundle_id = String::from_utf8_lossy(&output.stdout);
-            info!("Process '{}' bundle ID: {}", process_name, bundle_id.trim());
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            
+            // Parse mdls output to extract just the value
+            let bundle_id = if let Some(equals_pos) = output_str.find('=') {
+                let value_part = output_str[equals_pos + 1..].trim();
+                value_part.trim_matches('"').trim()
+            } else {
+                output_str.trim()
+            };
+            
+            info!("Process '{}' bundle ID: {}", process_name, bundle_id);
             
             let bundle_id_lower = bundle_id.to_lowercase();
             let browser_bundle_ids = [

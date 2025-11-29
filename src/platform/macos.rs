@@ -1,9 +1,11 @@
 // macOS-specific implementation
 // Uses CoreAudio for microphone, system_profiler for camera, sysinfo for processes
 
+use crate::config::is_browser_process_macos;
 use crate::error::DetectionError;
 use crate::platform::PlatformDetector;
 use log::debug;
+use std::process::Command;
 use sysinfo::System;
 
 pub struct MacOSDetector {
@@ -83,6 +85,7 @@ impl PlatformDetector for MacOSDetector {
         use std::process::Command;
         
         // Use AppleScript to get window titles
+        // Fixed: Use text item delimiters to properly format the list
         let script = r#"
             tell application "System Events"
                 set windowList to {}
@@ -94,7 +97,10 @@ impl PlatformDetector for MacOSDetector {
                         end repeat
                     end try
                 end repeat
-                return windowList
+                set AppleScript's text item delimiters to ", "
+                set resultString to windowList as string
+                set AppleScript's text item delimiters to ""
+                return resultString
             end tell
         "#;
         
@@ -113,15 +119,177 @@ impl PlatformDetector for MacOSDetector {
         let titles_str = String::from_utf8(output.stdout)
             .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?;
         
-        // Parse the AppleScript output (it returns a comma-separated list)
+        // Parse the AppleScript output (now properly comma-separated)
         let titles: Vec<String> = titles_str
             .split(',')
             .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.is_empty() && !s.starts_with("item 1 of")) // Filter out malformed entries
             .collect();
         
         debug!("Found {} visible windows", titles.len());
         Ok(titles)
+    }
+}
+
+// Helper functions for browser and network detection (not part of trait yet)
+// These can be called directly when needed
+
+/// Check if a process is a browser using macOS app categories
+pub fn is_browser_process(process_name: &str) -> Result<bool, DetectionError> {
+    is_browser_process_macos(process_name)
+}
+
+/// Get browser tab URLs for meeting detection
+/// Returns map of browser name -> list of URLs
+/// This is exported from platform module for use in detector
+pub fn get_browser_tab_urls() -> Result<std::collections::HashMap<String, Vec<String>>, DetectionError> {
+    use log::info;
+    let mut browser_urls = std::collections::HashMap::new();
+    
+    // Get URLs from Chrome
+    if let Ok(chrome_urls) = get_chrome_tab_urls() {
+        if !chrome_urls.is_empty() {
+            info!("Chrome tabs ({}): {:?}", chrome_urls.len(), chrome_urls);
+            browser_urls.insert("Google Chrome".to_string(), chrome_urls);
+        }
+    }
+    
+    // Get URLs from Safari
+    if let Ok(safari_urls) = get_safari_tab_urls() {
+        if !safari_urls.is_empty() {
+            info!("Safari tabs ({}): {:?}", safari_urls.len(), safari_urls);
+            browser_urls.insert("Safari".to_string(), safari_urls);
+        }
+    }
+    
+    // Get URLs from Edge
+    if let Ok(edge_urls) = get_edge_tab_urls() {
+        if !edge_urls.is_empty() {
+            info!("Edge tabs ({}): {:?}", edge_urls.len(), edge_urls);
+            browser_urls.insert("Microsoft Edge".to_string(), edge_urls);
+        }
+    }
+    
+    Ok(browser_urls)
+}
+
+/// Get URLs from all Chrome tabs
+fn get_chrome_tab_urls() -> Result<Vec<String>, DetectionError> {
+    let script = r#"
+        tell application "Google Chrome"
+            set urlList to {}
+            repeat with w in windows
+                repeat with t in tabs of w
+                    set end of urlList to URL of t
+                end repeat
+            end repeat
+            set AppleScript's text item delimiters to ", "
+            set resultString to urlList as string
+            set AppleScript's text item delimiters to ""
+            return resultString
+        end tell
+    "#;
+    
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output();
+    
+    match output {
+        Ok(output) if output.status.success() => {
+            let urls_str = String::from_utf8(output.stdout)
+                .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?;
+            
+            // Parse comma-separated URLs
+            let urls: Vec<String> = urls_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            
+            Ok(urls)
+        }
+        _ => Ok(Vec::new()), // Chrome not running or error - return empty
+    }
+}
+
+/// Get URLs from all Safari tabs
+fn get_safari_tab_urls() -> Result<Vec<String>, DetectionError> {
+    let script = r#"
+        tell application "Safari"
+            set urlList to {}
+            repeat with w in windows
+                repeat with t in tabs of w
+                    set end of urlList to URL of t
+                end repeat
+            end repeat
+            set AppleScript's text item delimiters to ", "
+            set resultString to urlList as string
+            set AppleScript's text item delimiters to ""
+            return resultString
+        end tell
+    "#;
+    
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output();
+    
+    match output {
+        Ok(output) if output.status.success() => {
+            let urls_str = String::from_utf8(output.stdout)
+                .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?;
+            
+            // Parse comma-separated URLs
+            let urls: Vec<String> = urls_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            
+            Ok(urls)
+        }
+        _ => Ok(Vec::new()), // Safari not running or error - return empty
+    }
+}
+
+/// Get URLs from all Edge tabs
+fn get_edge_tab_urls() -> Result<Vec<String>, DetectionError> {
+    let script = r#"
+        tell application "Microsoft Edge"
+            set urlList to {}
+            repeat with w in windows
+                repeat with t in tabs of w
+                    set end of urlList to URL of t
+                end repeat
+            end repeat
+            set AppleScript's text item delimiters to ", "
+            set resultString to urlList as string
+            set AppleScript's text item delimiters to ""
+            return resultString
+        end tell
+    "#;
+    
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output();
+    
+    match output {
+        Ok(output) if output.status.success() => {
+            let urls_str = String::from_utf8(output.stdout)
+                .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?;
+            
+            // Parse comma-separated URLs
+            let urls: Vec<String> = urls_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            
+            Ok(urls)
+        }
+        _ => Ok(Vec::new()), // Edge not running or error - return empty
     }
 }
 

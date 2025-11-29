@@ -56,3 +56,7 @@ pub use windows::WindowsDetector;
 #[cfg(test)]
 pub use linux::LinuxDetector;
 
+// Export platform-specific helper functions
+#[cfg(target_os = "macos")]
+pub use macos::get_browser_tab_urls;
+
