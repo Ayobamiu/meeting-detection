@@ -52,6 +52,7 @@ pub fn get_meeting_url_patterns() -> Vec<&'static str> {
         // Google Meet
         // Host: https://meet.google.com/cih-fjjf-pfd?authuser=4&pageId=none&pli=1
         // Visitor: https://meet.google.com/cih-fjjf-pfd
+        // Note: Only match URLs with a meeting code (path segment), not just the homepage
         "meet.google.com/",
         
         // Microsoft Teams (web)
@@ -80,9 +81,69 @@ pub fn get_meeting_url_patterns() -> Vec<&'static str> {
     ]
 }
 
+/// Validate if a string is a valid Google Meet meeting code
+/// Meeting codes follow the pattern: lowercase letters separated by hyphens
+/// Common formats: "abc-defg-hij" (3-4-3), "abc-def-ghi" (3-3-3), etc.
+fn is_valid_google_meet_code(code: &str) -> bool {
+    // Meeting codes must be non-empty
+    if code.is_empty() {
+        return false;
+    }
+    
+    // Split by hyphens to get the segments
+    let segments: Vec<&str> = code.split('-').collect();
+    
+    // Must have exactly 3 segments (standard Google Meet format)
+    if segments.len() != 3 {
+        return false;
+    }
+    
+    // Each segment must:
+    // 1. Be non-empty
+    // 2. Contain only lowercase letters (a-z)
+    // 3. Be between 2-5 characters (typical range: 3-4 chars per segment)
+    for segment in &segments {
+        if segment.is_empty() || segment.len() < 2 || segment.len() > 5 {
+            return false;
+        }
+        
+        // Must be all lowercase letters
+        if !segment.chars().all(|c| c.is_ascii_lowercase()) {
+            return false;
+        }
+    }
+    
+    // Total code length (excluding hyphens) should be reasonable
+    // Typical: 9-11 characters (3-3-3 = 9, 3-4-3 = 10, 4-4-3 = 11)
+    let total_chars: usize = segments.iter().map(|s| s.len()).sum();
+    if total_chars < 8 || total_chars > 15 {
+        return false;
+    }
+    
+    true
+}
+
 /// Check if a URL matches any meeting pattern
 pub fn is_meeting_url(url: &str) -> bool {
     let url_lower = url.to_lowercase();
+    
+    // Special handling for Google Meet: must have a valid meeting code in the path
+    if url_lower.contains("meet.google.com/") {
+        // Extract the path after meet.google.com/
+        if let Some(path_start) = url_lower.find("meet.google.com/") {
+            let after_domain = &url_lower[path_start + "meet.google.com/".len()..];
+            // Check if there's a path segment (meeting code) before query params or end of string
+            let path_segment = after_domain.split('?').next().unwrap_or(after_domain)
+                .split('#').next().unwrap_or(after_domain)
+                .trim_end_matches('/');
+            
+            // Validate if it's a proper meeting code using robust algorithm
+            return is_valid_google_meet_code(path_segment);
+        }
+        return false;
+    }
+    
+    // For other services, use simple pattern matching
     get_meeting_url_patterns()
         .iter()
         .any(|&pattern| url_lower.contains(pattern))

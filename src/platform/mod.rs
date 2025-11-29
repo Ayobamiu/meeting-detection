@@ -40,4 +40,5 @@ pub fn create_platform_detector() -> Result<Box<dyn PlatformDetector>, Detection
 
 // Export platform-specific helper functions
 pub use macos::get_browser_tab_urls;
+pub use macos::is_browser_process;
 

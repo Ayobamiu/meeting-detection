@@ -3,6 +3,7 @@
 mod config;
 mod detector;
 mod error;
+mod network;
 mod platform;
 
 use detector::{DetectionResult, MeetingDetector, MeetingState};
@@ -59,9 +60,24 @@ pub struct JsDetectionDetails {
 }
 
 fn detection_result_to_js(result: &DetectionResult) -> JsDetectionDetails {
+    // Calculate score for backward compatibility (not used in decision logic)
+    let mut score = 0;
+    if result.meeting_app_detected {
+        score += JS_SCORE_MEETING_APP;
+    }
+    if result.meeting_window_detected {
+        score += JS_SCORE_MEETING_WINDOW;
+    }
+    if result.microphone_active {
+        score += JS_SCORE_MICROPHONE;
+    }
+    if result.camera_active {
+        score += JS_SCORE_CAMERA;
+    }
+
     JsDetectionDetails {
         active: result.is_meeting_active,
-        score: result.score,
+        score,
         app_name: result.meeting_app_name.clone(),
         signals: SignalsBreakdown {
             meeting_app: SignalDetails {
