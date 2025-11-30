@@ -4,7 +4,6 @@
 use crate::config::is_browser_process_macos;
 use crate::error::DetectionError;
 use crate::platform::PlatformDetector;
-use log::debug;
 use std::process::Command;
 use sysinfo::System;
 
@@ -74,7 +73,6 @@ impl PlatformDetector for MacOSDetector {
             processes.push(process.name().to_string());
         }
         
-        debug!("Found {} running processes", processes.len());
         Ok(processes)
     }
 
@@ -126,7 +124,6 @@ impl PlatformDetector for MacOSDetector {
             .filter(|s| !s.is_empty() && !s.starts_with("item 1 of")) // Filter out malformed entries
             .collect();
         
-        debug!("Found {} visible windows", titles.len());
         Ok(titles)
     }
 }
@@ -143,13 +140,11 @@ pub fn is_browser_process(process_name: &str) -> Result<bool, DetectionError> {
 /// Returns map of browser name -> list of URLs
 /// This is exported from platform module for use in detector
 pub fn get_browser_tab_urls() -> Result<std::collections::HashMap<String, Vec<String>>, DetectionError> {
-    use log::info;
     let mut browser_urls = std::collections::HashMap::new();
     
     // Get URLs from Chrome
     if let Ok(chrome_urls) = get_chrome_tab_urls() {
         if !chrome_urls.is_empty() {
-            info!("Chrome tabs ({}): {:?}", chrome_urls.len(), chrome_urls);
             browser_urls.insert("Google Chrome".to_string(), chrome_urls);
         }
     }
@@ -157,7 +152,6 @@ pub fn get_browser_tab_urls() -> Result<std::collections::HashMap<String, Vec<St
     // Get URLs from Safari
     if let Ok(safari_urls) = get_safari_tab_urls() {
         if !safari_urls.is_empty() {
-            info!("Safari tabs ({}): {:?}", safari_urls.len(), safari_urls);
             browser_urls.insert("Safari".to_string(), safari_urls);
         }
     }
@@ -165,7 +159,6 @@ pub fn get_browser_tab_urls() -> Result<std::collections::HashMap<String, Vec<St
     // Get URLs from Edge
     if let Ok(edge_urls) = get_edge_tab_urls() {
         if !edge_urls.is_empty() {
-            info!("Edge tabs ({}): {:?}", edge_urls.len(), edge_urls);
             browser_urls.insert("Microsoft Edge".to_string(), edge_urls);
         }
     }

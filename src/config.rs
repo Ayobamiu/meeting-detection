@@ -82,8 +82,16 @@ pub fn get_meeting_url_patterns() -> Vec<&'static str> {
 }
 
 /// Validate if a string is a valid Google Meet meeting code
-/// Meeting codes follow the pattern: lowercase letters separated by hyphens
-/// Common formats: "abc-defg-hij" (3-4-3), "abc-def-ghi" (3-3-3), etc.
+/// 
+/// Meeting codes follow the pattern: lowercase alphanumeric segments separated by hyphens
+/// - Format: exactly 3 segments (e.g., "cih-fjjf-pfd")
+/// - Each segment: 2-5 characters, lowercase letters and digits
+/// - Total length: 8-15 characters (excluding hyphens)
+/// 
+/// Examples of valid codes:
+/// - "abc-def-ghi" (3-3-3 = 9 chars)
+/// - "cih-fjjf-pfd" (3-4-3 = 10 chars)
+/// - "abcd-efg-hij" (4-3-3 = 10 chars)
 fn is_valid_google_meet_code(code: &str) -> bool {
     // Meeting codes must be non-empty
     if code.is_empty() {
@@ -124,6 +132,15 @@ fn is_valid_google_meet_code(code: &str) -> bool {
 }
 
 /// Check if a URL matches any meeting pattern
+/// 
+/// **Google Meet Detection:**
+/// - Validates meeting code format (e.g., "cih-fjjf-pfd")
+/// - Excludes non-meeting pages: `/landing`, `/new`, `/join`, empty paths
+/// - Meeting codes: 3 segments, 2-5 chars each, lowercase alphanumeric, total 8-15 chars
+/// 
+/// **Other Services (Teams, Webex, Zoom web):**
+/// - Uses pattern matching on URL strings
+/// - Matches specific meeting URL patterns for each service
 pub fn is_meeting_url(url: &str) -> bool {
     let url_lower = url.to_lowercase();
     
@@ -132,10 +149,16 @@ pub fn is_meeting_url(url: &str) -> bool {
         // Extract the path after meet.google.com/
         if let Some(path_start) = url_lower.find("meet.google.com/") {
             let after_domain = &url_lower[path_start + "meet.google.com/".len()..];
-            // Check if there's a path segment (meeting code) before query params or end of string
+            // Extract path segment before query params (# or ?)
             let path_segment = after_domain.split('?').next().unwrap_or(after_domain)
                 .split('#').next().unwrap_or(after_domain)
                 .trim_end_matches('/');
+            
+            // Exclude non-meeting pages
+            let excluded_paths = ["landing", "new", "join", ""];
+            if excluded_paths.contains(&path_segment) {
+                return false;
+            }
             
             // Validate if it's a proper meeting code using robust algorithm
             return is_valid_google_meet_code(path_segment);
@@ -229,7 +252,6 @@ pub fn is_browser_process_pattern(process_name: &str) -> bool {
 /// Check if a process is a browser on macOS using bundle categories
 /// Uses `mdls` to check if the app's bundle category includes browser categories
 pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> {
-    use log::info;
     use std::process::Command;
     
     // First, try to find the app bundle path using AppleScript
@@ -289,12 +311,7 @@ pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionErr
                 output_str.trim()
             };
             
-            // Log the category so you can learn from it
-            if category_value != "(null)" && !category_value.is_empty() {
-                info!("Process '{}' category type: {}", process_name, category_value);
-            } else {
-                info!("Process '{}' category type: (null)", process_name);
-            }
+            // Check category value
             
             // Check for browser-related categories
             // Common categories: "public.app-category.web-browsers", "public.app-category.productivity"
@@ -332,11 +349,7 @@ pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionErr
                 output_str.trim()
             };
             
-            if category_name != "(null)" && !category_name.is_empty() {
-                info!("Process '{}' category name: {}", process_name, category_name);
-            } else {
-                info!("Process '{}' category name: (null)", process_name);
-            }
+            // Check category name
             
             let category_lower = category_name.to_lowercase();
             if category_name != "(null)" && !category_name.is_empty() {
@@ -366,8 +379,6 @@ pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionErr
                 output_str.trim()
             };
             
-            info!("Process '{}' bundle ID: {}", process_name, bundle_id);
-            
             let bundle_id_lower = bundle_id.to_lowercase();
             let browser_bundle_ids = [
                 "com.google.chrome",
@@ -392,20 +403,4 @@ pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionErr
     Ok(is_browser_process_pattern(process_name))
 }
 
-/// Filter processes to only browsers
-/// Uses macOS bundle categories on macOS, pattern matching on other platforms
-pub fn filter_browser_processes(
-    processes: &[String],
-) -> Result<Vec<String>, DetectionError> {
-    let mut browsers = Vec::new();
-    
-    // Use macOS bundle categories
-    for process in processes {
-        if is_browser_process_macos(process)? {
-            browsers.push(process.clone());
-        }
-    }
-    
-    Ok(browsers)
-}
 

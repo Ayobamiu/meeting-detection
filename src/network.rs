@@ -1,7 +1,6 @@
 // Network connection detection for meeting apps
 
 use crate::error::DetectionError;
-use log::info;
 use std::process::Command;
 
 /// Network connection information
@@ -151,7 +150,7 @@ pub fn get_network_connections_for_process(process_name: &str) -> Result<Vec<Net
     
     let all_connections = parse_lsof_output(&output_str);
     
-    // Filter for the specific process
+    // Filter for the specific process (exact match)
     let process_connections: Vec<NetworkConnection> = all_connections
         .into_iter()
         .filter(|conn| conn.process_name == process_name)
@@ -162,6 +161,11 @@ pub fn get_network_connections_for_process(process_name: &str) -> Result<Vec<Net
 
 /// Check if network connections indicate an active meeting
 /// Returns (has_meeting_connections, connection_count, details)
+/// 
+/// App-specific detection logic:
+/// - Zoom: UDP port 8801 is a strong indicator (works with IP addresses, not just domains)
+/// - Teams/Webex: STUN ports (3478-3481) or meeting domains with ESTABLISHED connections
+/// - Google Meet: Meeting domains with ESTABLISHED connections or video ports (19302-19309)
 pub fn detect_meeting_network_activity(
     process_name: &str,
 ) -> Result<(bool, usize, Vec<String>), DetectionError> {
@@ -183,30 +187,30 @@ pub fn detect_meeting_network_activity(
         let is_video_port = video_ports.contains(&conn.remote_port);
         
         // Check if connection is established (active)
+        // Only ESTABLISHED connections indicate active meetings
+        // CLOSED, CLOSING, or other states mean connection is ending/ended
         let is_established = conn.state == "ESTABLISHED";
         
-        // For Zoom specifically, UDP to port 8801 is a strong indicator
+        // Zoom-specific: UDP port 8801 is a strong indicator
+        // UDP connections often show "UNKNOWN" state, so we check the port
+        // But only if it's a recent/active connection (not CLOSED)
         let is_zoom_udp = conn.protocol == "UDP" 
-            && conn.remote_address.contains("zoom.us")
-            && conn.remote_port == 8801;
+            && conn.remote_port == 8801
+            && conn.state != "CLOSED";
         
-        if is_meeting_domain && (is_established || is_video_port || is_zoom_udp) {
+        // Meeting connection if:
+        // 1. Meeting domain AND ESTABLISHED (must be active, not just any state), OR
+        // 2. Meeting domain AND video port (video ports indicate active streaming), OR
+        // 3. Zoom UDP on port 8801 (Zoom-specific, but not if CLOSED)
+        let is_meeting_connection = (is_meeting_domain && (is_established || is_video_port)) || is_zoom_udp;
+        
+        if is_meeting_connection {
             meeting_connections.push(conn.clone());
             details.push(format!(
                 "{} {} {}:{} ({})",
                 conn.protocol, conn.process_name, conn.remote_address, conn.remote_port, conn.state
             ));
         }
-    }
-    
-    // Log detected connections
-    if !meeting_connections.is_empty() {
-        info!(
-            "Found {} meeting network connections for {}: {:?}",
-            meeting_connections.len(),
-            process_name,
-            details
-        );
     }
     
     let has_meeting = !meeting_connections.is_empty();

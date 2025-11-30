@@ -17,31 +17,14 @@ console.log(`Meeting active: ${active ? '✅ YES' : '❌ NO'}`);
 console.log('\n🎧 Registering event handlers...');
 
 onMeetingStart(() => {
-  console.log('\n🎥 [EVENT] Meeting started!');
+  console.log('\n---------------------------------🎥 [EVENT] Meeting started!---------------------------------');
   console.log('   Timestamp:', new Date().toISOString());
 });
 
 onMeetingEnd(() => {
-  console.log('\n✅ [EVENT] Meeting ended!');
+  console.log('\n---------------------------------✅ [EVENT] Meeting ended!---------------------------------');
   console.log('   Timestamp:', new Date().toISOString());
 });
-
-console.log('✅ Event handlers registered');
-console.log('\n⏳ Monitoring for meeting changes...');
-console.log('   (Polling every 2 seconds)');
-console.log('   Press Ctrl+C to exit\n');
-
-// Poll status every 3 seconds for visibility
-setInterval(() => {
-  const status = isMeetingActive();
-  const emoji = status ? '🎥' : '💤';
-  const text = status ? 'ACTIVE' : 'inactive';
-  console.log('-----------------ACTIVITY LOG---------------');
-  const lastDetectionDetails = getLastDetectionDetails();
-  console.log(lastDetectionDetails);
-  process.stdout.write(`\r${emoji} Status: ${text} (${new Date().toLocaleTimeString()})`);
-  console.log('\n-----------------ACTIVITY LOG---------------');
-}, 3000);
 
 // Keep process alive
 process.on('SIGINT', () => {

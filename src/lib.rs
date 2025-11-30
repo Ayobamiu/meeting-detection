@@ -56,10 +56,14 @@ pub struct JsDetectionDetails {
     pub active: bool,
     pub score: i32,
     pub app_name: Option<String>,
+    pub reason: String,
+    pub meeting_url: Option<String>,
     pub signals: SignalsBreakdown,
 }
 
 fn detection_result_to_js(result: &DetectionResult) -> JsDetectionDetails {
+    use detector::DetectionReason;
+    
     // Calculate score for backward compatibility (not used in decision logic)
     let mut score = 0;
     if result.meeting_app_detected {
@@ -75,10 +79,23 @@ fn detection_result_to_js(result: &DetectionResult) -> JsDetectionDetails {
         score += JS_SCORE_CAMERA;
     }
 
+    // Convert reason to string and extract meeting URL
+    let (reason_str, meeting_url) = match &result.reason {
+        DetectionReason::NativeAppWithNetwork { app_name } => {
+            (format!("NativeAppWithNetwork({})", app_name), None)
+        }
+        DetectionReason::BrowserWithMeetingUrl { browser_name, url } => {
+            (format!("BrowserWithMeetingUrl({})", browser_name), Some(url.clone()))
+        }
+        DetectionReason::None => ("None".to_string(), None),
+    };
+
     JsDetectionDetails {
         active: result.is_meeting_active,
         score,
         app_name: result.meeting_app_name.clone(),
+        reason: reason_str,
+        meeting_url,
         signals: SignalsBreakdown {
             meeting_app: SignalDetails {
                 active: result.meeting_app_detected,
@@ -157,9 +174,11 @@ impl DetectionEngine {
                     MeetingEvent::Ended => {
                         let callbacks = end_callbacks.lock().unwrap();
                         for callback in callbacks.iter() {
+                            // Use Blocking mode for meeting end to ensure immediate callback
+                            // NonBlocking can queue callbacks and delay execution
                             let _ = callback.call(
                                 Ok(details.clone()),
-                                ThreadsafeFunctionCallMode::NonBlocking,
+                                ThreadsafeFunctionCallMode::Blocking,
                             );
                         }
                     }
@@ -190,19 +209,27 @@ impl DetectionEngine {
                 
                 match detector.detect_with_state() {
                     Ok((result, state_change)) => {
-                        // Store last detection result for explainability
+                        // Store last detection result BEFORE sending event
+                        // This ensures event listener has the details when callback is called
                         {
                             let mut guard = last_result.lock().unwrap();
-                            *guard = Some(result);
+                            *guard = Some(result.clone());
                         }
-
+                        
                         match state_change {
                             Some(MeetingState::Active) => {
-                                info!("Meeting started");
+                                let app_name = result.meeting_app_name.as_deref().unwrap_or("unknown");
+                                let reason_str = match &result.reason {
+                                    detector::DetectionReason::NativeAppWithNetwork { .. } => "NativeAppWithNetwork",
+                                    detector::DetectionReason::BrowserWithMeetingUrl { .. } => "BrowserWithMeetingUrl",
+                                    detector::DetectionReason::None => "None",
+                                };
+                                info!("Meeting started: {} ({})", app_name, reason_str);
                                 let _ = tx.send(MeetingEvent::Started);
                             }
                             Some(MeetingState::Inactive) => {
-                                info!("Meeting ended");
+                                let app_name = result.meeting_app_name.as_deref().unwrap_or("none");
+                                info!("Meeting ended: {}", app_name);
                                 let _ = tx.send(MeetingEvent::Ended);
                             }
                             None => {
