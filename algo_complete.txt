@@ -1,0 +1,316 @@
+Project Entry Point
+===================
+init() {
+    initialStatus = noActiveMeeting
+    platform = getPlatform()
+    startPolling(platform, initialStatus)  // Poll every 2 seconds
+}
+
+
+Polling Loop
+============
+startPolling(platform, previousStatus) {
+    while (running) {
+        wait(2 seconds)
+        
+        detectionResult = isMeetingActive(platform)  // Returns {status, appName, reason, ...}
+        currentStatus = detectionResult.status
+        
+        // Detect state changes for events
+        if (currentStatus !== previousStatus) {
+            if (currentStatus === activeMeeting) {
+                emitEvent(meeting_started, {
+                    appName: detectionResult.appName,  // e.g., "zoom.us", "Google Chrome", "Safari"
+                    reason: detectionResult.reason,  // e.g., "NativeAppWithNetwork", "BrowserWithMeetingUrl"
+                    details: detectionResult
+                })
+            } else {
+                emitEvent(meeting_ended, {
+                    appName: detectionResult.appName,  // Last detected app name
+                    reason: detectionResult.reason,
+                    details: detectionResult
+                })
+            }
+            previousStatus = currentStatus
+        }
+    }
+}
+
+
+Main Detection Logic
+====================
+isMeetingActive(platform) {
+    processes = getRunningProcesses(platform)
+    if (processes is error or empty): 
+        return {status: noActiveMeeting, appName: null, reason: "None"}
+    
+    {browsers, meetingApps} = categorizeProcesses(processes)
+    
+    // TIER 1: Native Meeting Apps (Zoom, Teams desktop, Webex desktop)
+    for app in meetingApps:
+        // CRITICAL: Check if app is also a browser (skip it, handled in Tier 2)
+        if (isBrowser(app)):
+            continue  // Skip browsers in Tier 1, they're handled in Tier 2
+        
+        // Get network connections for this specific process
+        appConnections = getConnectionsForProcess(app)
+        if (appConnections is error): continue  // Skip this app on error, try next
+        
+        if (app === "zoom"):
+            if (hasActiveZoomConnections(appConnections)):
+                return {
+                    status: activeMeeting,
+                    appName: app,  // e.g., "zoom.us"
+                    reason: "NativeAppWithNetwork"
+                }
+        
+        if (app === "teams"):
+            if (hasActiveTeamsConnections(appConnections)):
+                return {
+                    status: activeMeeting,
+                    appName: app,  // e.g., "Microsoft Teams"
+                    reason: "NativeAppWithNetwork"
+                }
+        
+        if (app === "webex"):
+            if (hasActiveWebexConnections(appConnections)):
+                return {
+                    status: activeMeeting,
+                    appName: app,  // e.g., "Cisco Webex"
+                    reason: "NativeAppWithNetwork"
+                }
+    
+    // TIER 2: Browser-Based Meetings (Google Meet, Teams web, Webex web)
+    browserUrlsMap = getBrowserTabUrls()  // Get all browser tabs
+    if (browserUrlsMap is error): 
+        return {status: noActiveMeeting, appName: null, reason: "None"}
+    
+    for (browserName, urls) in browserUrlsMap:
+        for url in urls:
+            if (isMeetingURL(url)):  // Unified URL matcher
+                return {
+                    status: activeMeeting,
+                    appName: browserName,  // e.g., "Google Chrome", "Safari"
+                    reason: "BrowserWithMeetingUrl",
+                    meetingUrl: url  // The detected meeting URL
+                }
+    
+    return {status: noActiveMeeting, appName: null, reason: "None"}
+}
+
+
+Process Categorization
+======================
+categorizeProcesses(processes) {
+    browsers = []
+    meetingApps = []
+    
+    for process in processes:
+        // Note: A process can match BOTH browser and meeting app
+        // Browser check happens first, then meeting app check
+        if (isBrowser(process)):
+            browsers.append(process)
+        
+        if (isMeetingApp(process)):
+            meetingApps.append(process)
+            // Note: If it's also a browser, it will be in both lists
+            // But in Tier 1, we check isBrowser() first and skip it
+    
+    return {browsers, meetingApps}
+}
+
+
+Native App Connection Matching
+===============================
+hasActiveZoomConnections(connections) {
+    if (connections is empty): return false
+    
+    for conn in connections:
+        // CRITICAL: Zoom UDP port 8801 works with IP addresses (no domain check needed)
+        // lsof returns IPs like 144.195.42.119, not domain names
+        // UDP connections often have "UNKNOWN" state, not "ESTABLISHED"
+        if (conn.protocol === "UDP" && conn.port === 8801):
+            return true  // Works with IPs, state doesn't matter
+        
+        // TCP connections: check domain and state
+        if (conn.protocol === "TCP"):
+            if (conn.domain contains "zoom.us" && conn.state === "ESTABLISHED"):
+                return true
+            // Also check if IP resolves to zoom.us (optional, not always available)
+    
+    return false
+}
+
+hasActiveTeamsConnections(connections) {
+    if (connections is empty): return false
+    
+    for conn in connections:
+        // Domain check (works if lsof resolves to domain, may be IP)
+        if (conn.domain contains "teams.microsoft.com" && conn.state === "ESTABLISHED"):
+            return true
+        
+        // STUN ports indicate active meeting (state may be UNKNOWN for UDP)
+        if (conn.port in [3478, 3479, 3480, 3481]):
+            return true
+    
+    return false
+}
+
+hasActiveWebexConnections(connections) {
+    if (connections is empty): return false
+    
+    for conn in connections:
+        // Domain check (works if lsof resolves to domain, may be IP)
+        if (conn.domain contains "webex.com" && conn.state === "ESTABLISHED"):
+            return true
+        
+        // Webex video ports (state may be UNKNOWN for UDP)
+        if (conn.port in [9000-9999]):
+            return true
+    
+    return false
+}
+
+
+Browser Tab Detection
+=====================
+getBrowserTabUrls() {
+    // Get URLs from all browsers (Chrome, Safari, Edge)
+    // Returns: { browserName: [urls] }
+    browserUrlsMap = {}
+    
+    chromeUrls = getChromeTabUrls()  // Uses AppleScript
+    if (chromeUrls.length > 0):
+        browserUrlsMap["Google Chrome"] = chromeUrls
+    
+    safariUrls = getSafariTabUrls()  // Uses AppleScript
+    if (safariUrls.length > 0):
+        browserUrlsMap["Safari"] = safariUrls
+    
+    edgeUrls = getEdgeTabUrls()  // Uses AppleScript
+    if (edgeUrls.length > 0):
+        browserUrlsMap["Microsoft Edge"] = edgeUrls
+    
+    return browserUrlsMap
+}
+
+// Unified URL matcher (simpler than per-service functions)
+isMeetingURL(url) {
+    if (isGoogleMeetMeetingURL(url)): return true
+    if (isZoomMeetingURL(url)): return true
+    if (isTeamsMeetingURL(url)): return true
+    if (isWebexMeetingURL(url)): return true
+    return false
+}
+
+
+URL Matching Functions (Helper functions for unified isMeetingURL)
+==================================================================
+isZoomMeetingURL(url) {
+    patterns = ["zoom.us/j/", "zoom.us/s/", "zoom.us/wc/"]
+    return url.toLowerCase() contains any pattern
+}
+
+isGoogleMeetMeetingURL(url) {
+    if (url contains "meet.google.com/"):
+        path = extractPath(url)  // Get path before ? or #
+        
+        // CRITICAL: Exclude non-meeting pages
+        excludedPaths = ["landing", "new", "join", ""]
+        if (path in excludedPaths): return false
+        
+        // Must be valid meeting code: 3 segments separated by hyphens
+        // Format: xxx-yyy-zzz (lowercase letters, 2-5 chars per segment)
+        return isValidMeetingCode(path)
+    return false
+}
+
+isTeamsMeetingURL(url) {
+    patterns = [
+        "teams.live.com/v2/",
+        "teams.live.com/light-meetings/launch",
+        "teams.microsoft.com/_#/meet"
+    ]
+    return url.toLowerCase() contains any pattern
+}
+
+isWebexMeetingURL(url) {
+    patterns = [
+        "web.webex.com/meetings",
+        ".webex.com/wbxmjs/joinservice",  // Active meeting
+        ".webex.com/webappng"  // After meeting (may want to exclude this)
+    ]
+    return url.toLowerCase() contains any pattern
+}
+
+
+Google Meet Code Validation
+===========================
+isValidMeetingCode(code) {
+    if (code is empty): return false
+    
+    segments = code.split("-")
+    
+    // Must have exactly 3 segments
+    if (segments.length !== 3): return false
+    
+    // Each segment: 2-5 chars, lowercase letters only
+    for segment in segments:
+        if (segment.length < 2 || segment.length > 5): return false
+        if (not all chars are lowercase letters): return false
+    
+    // Total length: 8-15 chars (excluding hyphens)
+    totalChars = sum of segment lengths
+    if (totalChars < 8 || totalChars > 15): return false
+    
+    return true
+}
+
+
+Helper Functions
+================
+isBrowser(process) {
+    // Check macOS app categories or known browser names
+    return process is Chrome, Safari, Edge, Firefox, etc.
+}
+
+isMeetingApp(process) {
+    // Uses substring matching (case-insensitive)
+    // "Google Chrome Helper" matches "chrome" - this is intentional
+    // But browser check will catch it in Tier 1
+    processLower = process.toLowerCase()
+    meetingApps = ["zoom", "zoom.us", "teams", "webex", "skype"]
+    return processLower contains any meetingApp (substring match, case-insensitive)
+}
+
+getConnectionsForProcess(processName) {
+    // Use lsof to get network connections for this specific process
+    // Filter connections where process_name matches
+    return filtered connections
+}
+
+getActiveTabs(browser) {
+    // Use AppleScript to get all tab URLs from browser
+    return list of URLs
+}
+
+
+Key Simplifications
+===================
+1. Two-tier approach: Native apps (network) vs Browsers (URLs)
+2. Early return: Stop checking once meeting is found
+3. Per-process connections: Get connections filtered by process name
+4. State tracking: Compare current vs previous status for events
+5. Simple URL matching: Pattern-based for most, validation for Google Meet
+6. Event data: Meeting app name included in all events for explainability
+
+Critical Implementation Details
+================================
+1. Browser priority: If process is both browser and meeting app, treat as browser (Tier 2)
+2. IP addresses: lsof returns IPs, not domains - Zoom UDP port 8801 works with IPs
+3. Connection states: UDP often shows "UNKNOWN", port-based checks work regardless
+4. Error handling: Continue checking other apps/browsers if one fails
+5. Google Meet exclusions: /landing, /new, /join are not meetings
+6. Process matching: Substring match (case-insensitive) - "chrome" matches "Google Chrome Helper"
+7. Event payload: All events include appName and reason for explainability
+
