@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "macOS meeting detection engine for Electron/Node.js",
   "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ayobamiu/meeting-detection.git"
+  },
+  "homepage": "https://github.com/Ayobamiu/meeting-detection",
   "types": "index.d.ts",
   "scripts": {
     "build": "napi build --platform --release",
@@ -15,11 +20,18 @@
     "detection",
     "zoom",
     "teams",
+    "google-meet",
+    "webex",
     "electron",
-    "napi"
+    "napi",
+    "macos",
+    "native-addon"
   ],
-  "author": "",
+  "author": "Usman Ayobami",
   "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  },
   "devDependencies": {
     "@napi-rs/cli": "^2.16.0"
   },
