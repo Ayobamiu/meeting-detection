@@ -60,14 +60,14 @@ if (details) {
 }
 
 // Listen for meeting start
-onMeetingStart((details) => {
+onMeetingStart((_, details) => {
   console.log("🎥 Meeting started!");
   console.log("App:", details.appName);
   // Do something when meeting starts
 });
 
 // Listen for meeting end
-onMeetingEnd((details) => {
+onMeetingEnd((_, details) => {
   console.log("✅ Meeting ended!");
   // Do something when meeting ends
 });
@@ -88,12 +88,12 @@ app.whenReady().then(() => {
   init();
 
   // Update UI when meeting status changes
-  onMeetingStart(() => {
-    console.log("User is in a meeting");
+  onMeetingStart((_, details) => {
+    console.log("User is in a meeting:", details.appName);
     // Update your app UI
   });
 
-  onMeetingEnd(() => {
+  onMeetingEnd((_, details) => {
     console.log("User is no longer in a meeting");
     // Update your app UI
   });
@@ -127,31 +127,44 @@ if (active) {
 }
 ```
 
-### `onMeetingStart(callback: (details: JsDetectionDetails) => void): void`
+### `onMeetingStart(callback: (error: null, details: JsDetectionDetails) => void): void`
 
-Register a callback that will be called when a meeting is detected to start. The callback receives detection details.
+Register a callback that will be called when a meeting is detected to start. The callback follows Node.js error-first convention: first parameter is always `null` (no error), second parameter contains the detection details.
 
 **Example:**
 
 ```javascript
-onMeetingStart((details) => {
+onMeetingStart((error, details) => {
+  // error is always null, details contains the detection information
   console.log("Meeting started!");
   console.log("App:", details.appName);
   console.log("Reason:", details.reason);
   // Your logic here
 });
+
+// Or ignore the error parameter:
+onMeetingStart((_, details) => {
+  console.log("Meeting started!");
+  console.log("App:", details.appName);
+});
 ```
 
-### `onMeetingEnd(callback: (details: JsDetectionDetails) => void): void`
+### `onMeetingEnd(callback: (error: null, details: JsDetectionDetails) => void): void`
 
-Register a callback that will be called when a meeting is detected to end. The callback receives detection details.
+Register a callback that will be called when a meeting is detected to end. The callback follows Node.js error-first convention: first parameter is always `null` (no error), second parameter contains the detection details.
 
 **Example:**
 
 ```javascript
-onMeetingEnd((details) => {
+onMeetingEnd((error, details) => {
+  // error is always null, details contains the detection information
   console.log("Meeting ended!");
   // Your logic here
+});
+
+// Or ignore the error parameter:
+onMeetingEnd((_, details) => {
+  console.log("Meeting ended!");
 });
 ```
 
@@ -162,13 +175,7 @@ Get detailed information about the last detection cycle. Useful for debugging an
 **Returns:**
 
 - `null` if no detection has been performed yet
-- `JsDetectionDetails` object with:
-  - `active`: boolean - Whether a meeting is currently active
-  - `appName`: string | undefined - Name of the meeting app (e.g., "Zoom", "Safari")
-  - `reason`: string - Detection reason (e.g., "NativeAppWithNetwork(Zoom)", "BrowserWithMeetingUrl(Safari)")
-  - `meetingUrl`: string | undefined - Meeting URL if detected in browser
-  - `score`: number - Legacy scoring (for backward compatibility)
-  - `signals`: object - Breakdown of detection signals
+- `JsDetectionDetails` object (see Type Reference below)
 
 **Example:**
 
@@ -179,6 +186,62 @@ if (details) {
   console.log("App:", details.appName);
   console.log("Reason:", details.reason);
 }
+```
+
+## Type Reference
+
+### `JsDetectionDetails`
+
+The detection details object returned by callbacks and `getLastDetectionDetails()`. This type is exported and can be imported in TypeScript projects.
+
+```typescript
+interface JsDetectionDetails {
+  active: boolean; // Whether a meeting is currently active
+  score: number; // Legacy scoring (for backward compatibility)
+  appName?: string; // Name of the meeting app (e.g., "Zoom", "Safari", "Chrome")
+  reason: string; // Detection reason (e.g., "NativeAppWithNetwork(Zoom)", "BrowserWithMeetingUrl(Safari)")
+  meetingUrl?: string; // Meeting URL if detected in browser
+  signals: SignalsBreakdown; // Breakdown of detection signals
+}
+
+interface SignalsBreakdown {
+  meetingApp: SignalDetails;
+  meetingWindow: SignalDetails;
+  microphone: SignalDetails;
+  camera: SignalDetails;
+}
+
+interface SignalDetails {
+  active: boolean;
+  weight: number;
+}
+```
+
+**Properties:**
+
+- `active`: `boolean` - Whether a meeting is currently active
+- `appName`: `string | undefined` - Name of the meeting app (e.g., "Zoom", "Safari", "Chrome", "Microsoft Edge")
+- `reason`: `string` - Detection reason:
+  - `"NativeAppWithNetwork(Zoom)"` - Native app detected with active network connections
+  - `"BrowserWithMeetingUrl(Safari)"` - Browser tab with meeting URL detected
+  - `"None"` - No meeting detected
+- `meetingUrl`: `string | undefined` - Full meeting URL if detected in browser (e.g., `"https://meet.google.com/abc-def-ghi"`)
+- `score`: `number` - Legacy scoring system (kept for backward compatibility, not used in decision logic)
+- `signals`: `SignalsBreakdown` - Breakdown of individual detection signals (for debugging)
+
+**Example:**
+
+```typescript
+import { JsDetectionDetails } from "meeting-detection";
+
+onMeetingStart((_, details: JsDetectionDetails) => {
+  if (details.active) {
+    console.log(`Meeting active in ${details.appName}`);
+    if (details.meetingUrl) {
+      console.log(`URL: ${details.meetingUrl}`);
+    }
+  }
+});
 ```
 
 ## How It Works
