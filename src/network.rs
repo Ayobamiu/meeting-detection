@@ -19,8 +19,10 @@ pub fn get_meeting_domains() -> Vec<&'static str> {
         // Zoom
         "zoom.us",
         "zoom.com",
-        // Teams
+        // Teams (including new cloud.microsoft domain)
         "teams.microsoft.com",
+        "teams.cloud.microsoft",
+        "cloud.microsoft",
         "office.com",
         // Webex
         "webex.com",

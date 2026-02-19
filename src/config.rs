@@ -62,6 +62,11 @@ pub fn get_meeting_url_patterns() -> Vec<&'static str> {
         "teams.live.com/light-meetings/launch",
         "teams.microsoft.com/_#/meet",
         "teams.microsoft.com/_#/conversations",
+        // Teams on cloud.microsoft (new unified domain; same app, better security)
+        // https://support.microsoft.com/en-us/office/what-is-cloud-microsoft-7ba4c8b9-d062-4444-84a5-fca6c3006d2b
+        "teams.cloud.microsoft/_#/meet",
+        "teams.cloud.microsoft/_#/conversations",
+        "teams.cloud.microsoft",
         
         // Zoom (web)
         "zoom.us/j/",
