@@ -1,7 +1,8 @@
 # Rust
 target/
-Cargo.lock
 **/*.rs.bk
+# Cargo.lock is committed: this crate compiles to a binary that ships to users,
+# so releases need to be reproducible.
 
 # Node
 node_modules/

@@ -1,8 +1,6 @@
 /// Configuration for meeting detection
 /// This defines meeting apps and window title patterns
 
-use crate::error::DetectionError;
-
 /// Known meeting application process names per platform
 pub fn get_meeting_app_processes() -> Vec<&'static str> {
     vec![
@@ -62,7 +60,7 @@ pub fn get_meeting_url_patterns() -> Vec<&'static str> {
         "teams.live.com/light-meetings/launch",
         "teams.microsoft.com/_#/meet",
         "teams.microsoft.com/_#/conversations",
-        
+
         // Zoom (web)
         "zoom.us/j/",
         "zoom.us/s/",
@@ -188,219 +186,127 @@ pub fn is_meeting_window(window_title: &str) -> bool {
         .any(|&pattern| title_lower.contains(pattern))
 }
 
-/// Comprehensive list of browser process names (for non-macOS platforms)
-pub fn get_browser_process_names() -> Vec<&'static str> {
+/// Browser names that are short, common words. These are matched by exact
+/// (case-insensitive) equality, because matching them as substrings
+/// misclassifies unrelated system processes: "edge" appears in
+/// "knowledge-agent", "arc" in "searchpartyd", "tor" in "distnoted".
+fn get_browser_exact_names() -> Vec<&'static str> {
+    vec!["arc", "edge", "epic", "opera", "tor", "brave", "vivaldi", "yandex"]
+}
+
+/// Distinctive fragments matched anywhere in a process name. These also catch
+/// helper processes ("Google Chrome Helper (Renderer)",
+/// "chrome_crashpad_handler"), which matters: helpers must be recognized as
+/// browsers so Tier 1 never inspects their network traffic. A Chrome helper
+/// holds ESTABLISHED connections to google.com, which would otherwise be read
+/// as an active meeting.
+fn get_browser_name_fragments() -> Vec<&'static str> {
     vec![
-        // Chromium-based browsers
-        "Google Chrome",
-        "chrome",
-        "Chromium",
+        // Chromium-based
+        "google chrome",
         "chromium",
-        "Microsoft Edge",
+        "chrome",
+        "microsoft edge",
         "msedge",
-        "Edge",
-        "Brave Browser",
-        "brave",
-        "Brave",
-        "Opera",
-        "opera",
-        "Opera Browser",
-        "Vivaldi",
-        "vivaldi",
-        "Yandex",
-        "yandex",
-        "Arc",
-        "arc",
+        "brave browser",
+        "opera browser",
+        "opera gx",
         // Firefox-based
-        "Firefox",
         "firefox",
-        "Firefox Developer Edition",
-        "Firefox Nightly",
-        // Safari (also on macOS but included for completeness)
-        "Safari",
-        "safari",
-        "Safari Technology Preview",
-        // Other browsers
-        "Tor Browser",
-        "tor",
-        "DuckDuckGo",
-        "duckduckgo",
-        "Epic Privacy Browser",
-        "epic",
-        "Maxthon",
-        "maxthon",
-        "Pale Moon",
-        "palemoon",
-        "Waterfox",
+        "mozilla",
         "waterfox",
-        "SeaMonkey",
+        "palemoon",
+        "pale moon",
         "seamonkey",
-        // Electron-based browsers/apps that might host meetings
-        "Electron",
+        // WebKit / Safari
+        "safari",
+        "webkit",
+        // Other
+        "tor browser",
+        "duckduckgo",
+        "maxthon",
         "electron",
     ]
 }
 
-/// Check if a process name matches any browser (pattern-based, fallback for all platforms)
-pub fn is_browser_process_pattern(process_name: &str) -> bool {
-    let process_lower = process_name.to_lowercase();
-    get_browser_process_names()
+/// Check if a process is a browser.
+///
+/// This runs for every meeting-app candidate on every polling cycle, so it must
+/// stay allocation-light and must not spawn subprocesses. A previous version
+/// shelled out to `osascript` and `mdls` per process to read the app bundle's
+/// category; that cost 5-9 seconds per detection cycle and fell back to this
+/// same name matching whenever the lookup failed.
+pub fn is_browser_process(process_name: &str) -> bool {
+    let process_lower = process_name.trim().to_lowercase();
+
+    if get_browser_exact_names()
         .iter()
-        .any(|&browser| process_lower.contains(&browser.to_lowercase()))
+        .any(|&browser| process_lower == browser)
+    {
+        return true;
+    }
+
+    get_browser_name_fragments()
+        .iter()
+        .any(|&fragment| process_lower.contains(fragment))
 }
 
-/// Check if a process is a browser on macOS using bundle categories
-/// Uses `mdls` to check if the app's bundle category includes browser categories
-pub fn is_browser_process_macos(process_name: &str) -> Result<bool, DetectionError> {
-    use std::process::Command;
-    
-    // First, try to find the app bundle path using AppleScript
-    let script = format!(
-        r#"
-        tell application "System Events"
-            try
-                set appProcess to first process whose name is "{}"
-                set appPath to POSIX path of (file of appProcess as alias)
-                return appPath
-            on error
-                return ""
-            end try
-        end tell
-        "#,
-        process_name
-    );
-    
-    let output = Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-        .map_err(|e| DetectionError::SystemError(format!("Failed to run osascript: {}", e)))?;
-    
-    if !output.status.success() {
-        // If we can't get the path, fall back to pattern matching
-        return Ok(is_browser_process_pattern(process_name));
-    }
-    
-    let app_path = String::from_utf8(output.stdout)
-        .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?
-        .trim()
-        .to_string();
-    
-    if app_path.is_empty() {
-        // Fall back to pattern matching if we can't find the app
-        return Ok(is_browser_process_pattern(process_name));
-    }
-    
-    // Try to get app store category type (most reliable for browsers)
-    let category_output = Command::new("mdls")
-        .arg("-name")
-        .arg("kMDItemAppStoreCategoryType")
-        .arg(&app_path)
-        .output();
-    
-    if let Ok(output) = category_output {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            
-            // Parse mdls output: "kMDItemAppStoreCategoryType = "value"" or "kMDItemAppStoreCategoryType = (null)"
-            let category_value = if let Some(equals_pos) = output_str.find('=') {
-                let value_part = output_str[equals_pos + 1..].trim();
-                // Remove quotes if present
-                value_part.trim_matches('"').trim()
-            } else {
-                output_str.trim()
-            };
-            
-            // Check category value
-            
-            // Check for browser-related categories
-            // Common categories: "public.app-category.web-browsers", "public.app-category.productivity"
-            let category_lower = category_value.to_lowercase();
-            let browser_category_patterns = [
-                "web-browser",
-                "web-browsers",
-                "browser",
-            ];
-            
-            if category_value != "(null)" && !category_value.is_empty() {
-                if browser_category_patterns.iter().any(|pattern| category_lower.contains(pattern)) {
-                    return Ok(true);
-                }
-            }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_browsers_and_their_helper_processes() {
+        // Helpers must be recognized too: Tier 1 skips browsers, and a Chrome
+        // helper's ESTABLISHED connections to google.com would otherwise read
+        // as an active meeting.
+        for name in [
+            "Google Chrome",
+            "Google Chrome Helper",
+            "Google Chrome Helper (Renderer)",
+            "chrome_crashpad_handler",
+            "Safari",
+            "com.apple.WebKit.WebContent",
+            "firefox",
+            "Microsoft Edge",
+            "msedge",
+            "Arc",
+            "Brave Browser",
+        ] {
+            assert!(is_browser_process(name), "{} should be a browser", name);
         }
     }
-    
-    // Also check the human-readable category name
-    let category_name_output = Command::new("mdls")
-        .arg("-name")
-        .arg("kMDItemAppStoreCategory")
-        .arg(&app_path)
-        .output();
-    
-    if let Ok(output) = category_name_output {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            
-            // Parse mdls output to extract just the value
-            let category_name = if let Some(equals_pos) = output_str.find('=') {
-                let value_part = output_str[equals_pos + 1..].trim();
-                value_part.trim_matches('"').trim()
-            } else {
-                output_str.trim()
-            };
-            
-            // Check category name
-            
-            let category_lower = category_name.to_lowercase();
-            if category_name != "(null)" && !category_name.is_empty() {
-                if category_lower.contains("browser") || category_lower.contains("web") {
-                    return Ok(true);
-                }
-            }
+
+    /// Short browser names are matched exactly. Substring matching on them
+    /// misclassified unrelated macOS system processes.
+    #[test]
+    fn does_not_misclassify_system_processes_as_browsers() {
+        for name in [
+            "knowledge-agent",   // contains "edge"
+            "searchpartyd",      // contains "arc"
+            "distnoted",         // contains "tor"
+            "zoom.us",
+            "ZoomCefHelper",
+            "Microsoft Teams",
+        ] {
+            assert!(!is_browser_process(name), "{} should not be a browser", name);
         }
     }
-    
-    // Check bundle identifier as fallback
-    let bundle_id_output = Command::new("mdls")
-        .arg("-name")
-        .arg("kMDItemCFBundleIdentifier")
-        .arg(&app_path)
-        .output();
-    
-    if let Ok(output) = bundle_id_output {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            
-            // Parse mdls output to extract just the value
-            let bundle_id = if let Some(equals_pos) = output_str.find('=') {
-                let value_part = output_str[equals_pos + 1..].trim();
-                value_part.trim_matches('"').trim()
-            } else {
-                output_str.trim()
-            };
-            
-            let bundle_id_lower = bundle_id.to_lowercase();
-            let browser_bundle_ids = [
-                "com.google.chrome",
-                "com.microsoft.edgemac",
-                "com.brave.browser",
-                "com.operasoftware.opera",
-                "com.vivaldi.vivaldi",
-                "org.mozilla.firefox",
-                "com.apple.safari",
-                "org.torproject.torbrowser",
-                "com.duckduckgo.mac.browser",
-                "com.epicbrowser.epic",
-            ];
-            
-            if browser_bundle_ids.iter().any(|id| bundle_id_lower.contains(id)) {
-                return Ok(true);
-            }
-        }
+
+    #[test]
+    fn matches_native_meeting_apps() {
+        assert!(is_meeting_process("zoom.us"));
+        assert!(is_meeting_process("Microsoft Teams"));
+        assert!(is_meeting_process("webexmta"));
+        assert!(!is_meeting_process("Finder"));
     }
-    
-    // Fall back to pattern matching if bundle detection fails
-    Ok(is_browser_process_pattern(process_name))
+
+    #[test]
+    fn validates_google_meet_codes() {
+        assert!(is_meeting_url("https://meet.google.com/cih-fjjf-pfd"));
+        assert!(is_meeting_url("https://meet.google.com/cih-fjjf-pfd?authuser=4&pli=1"));
+        assert!(!is_meeting_url("https://meet.google.com/"));
+        assert!(!is_meeting_url("https://meet.google.com/landing"));
+        assert!(!is_meeting_url("https://meet.google.com/new"));
+    }
 }
-
-

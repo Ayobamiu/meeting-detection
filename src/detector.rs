@@ -1,10 +1,10 @@
 // Core detection logic with app-specific decision tree
 
-use crate::config::{is_meeting_process, is_meeting_url};
+use crate::config::{is_browser_process, is_meeting_process, is_meeting_url};
 use crate::error::DetectionError;
-use crate::network::detect_meeting_network_activity;
+use crate::network::{detect_meeting_network_activity, get_all_network_connections};
+use crate::platform::get_browser_tab_urls;
 use crate::platform::PlatformDetector;
-use crate::platform::{get_browser_tab_urls, is_browser_process};
 use std::sync::{Arc, Mutex};
 
 /// State of meeting detection
@@ -91,34 +91,33 @@ impl MeetingDetector {
         // TIER 1: Check for native meeting apps (Zoom, Teams desktop, Webex desktop)
         // For native apps, network connections are the primary signal
         // Only network connections indicate an active meeting for native apps
-        for process_name in &processes {
-            if is_meeting_process(process_name) {
-                // Check if it's a browser first (browsers are handled in Tier 2)
-                if let Ok(true) = is_browser_process(process_name) {
-                    continue; // Skip browsers, handle in Tier 2
-                }
+        let native_candidates: Vec<&String> = processes
+            .iter()
+            .filter(|name| is_meeting_process(name) && !is_browser_process(name))
+            .collect();
 
-                // It's a native meeting app - check network connections
-                match detect_meeting_network_activity(process_name) {
-                    Ok((has_network, _count, _details)) => {
-                        if has_network {
-                            return Ok(DetectionResult {
-                                meeting_app_detected: true,
-                                meeting_app_name: Some(process_name.clone()),
-                                meeting_window_detected,
-                                microphone_active,
-                                camera_active,
-                                score: 0, // Not used in new logic
-                                is_meeting_active: true,
-                                reason: DetectionReason::NativeAppWithNetwork {
-                                    app_name: process_name.clone(),
-                                },
-                            });
-                        }
-                    }
-                    Err(_e) => {
-                        // Network detection failed for this process, continue checking others
-                    }
+        // `lsof` is run at most once per cycle and shared across candidates,
+        // rather than once per candidate.
+        if !native_candidates.is_empty() {
+            let connections = get_all_network_connections().unwrap_or_default();
+
+            for process_name in native_candidates {
+                let (has_network, _count, _details) =
+                    detect_meeting_network_activity(process_name, &connections);
+
+                if has_network {
+                    return Ok(DetectionResult {
+                        meeting_app_detected: true,
+                        meeting_app_name: Some(process_name.clone()),
+                        meeting_window_detected,
+                        microphone_active,
+                        camera_active,
+                        score: 0, // Not used in new logic
+                        is_meeting_active: true,
+                        reason: DetectionReason::NativeAppWithNetwork {
+                            app_name: process_name.clone(),
+                        },
+                    });
                 }
                 // No network connections = no active meeting for native apps
             }
@@ -126,7 +125,7 @@ impl MeetingDetector {
 
         // TIER 2: Check for browser-based meetings (Google Meet, Teams web, Webex web)
         // For browser-based meetings, meeting URLs are definitive
-        if let Ok(browser_urls_map) = get_browser_tab_urls() {
+        if let Ok(browser_urls_map) = get_browser_tab_urls(&processes) {
             for (browser_name, urls) in browser_urls_map {
                 for url in urls {
                     if is_meeting_url(&url) {
@@ -183,16 +182,6 @@ impl MeetingDetector {
         };
 
         Ok((result, state_change))
-    }
-
-    /// Get current meeting state without triggering state change
-    pub fn get_current_state(&self) -> Result<MeetingState, DetectionError> {
-        let result = self.detect()?;
-        Ok(if result.is_meeting_active {
-            MeetingState::Active
-        } else {
-            MeetingState::Inactive
-        })
     }
 }
 
