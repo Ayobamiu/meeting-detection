@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Meeting Detection Demo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #17181c;
+        --muted: #6b7280;
+        --line: #e5e7eb;
+        --card: #f7f8fa;
+        --active: #16a34a;
+        --idle: #6b7280;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #16171b;
+          --fg: #f2f3f5;
+          --muted: #9aa1ac;
+          --line: #2c2f36;
+          --card: #1e2026;
+          --active: #4ade80;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 28px;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      h1 { font-size: 15px; margin: 0 0 20px; font-weight: 600; letter-spacing: -0.01em; }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--card);
+        margin-bottom: 20px;
+      }
+      .dot {
+        width: 12px; height: 12px; border-radius: 50%;
+        background: var(--idle);
+        flex: none;
+      }
+      .dot.on { background: var(--active); box-shadow: 0 0 0 4px color-mix(in srgb, var(--active) 22%, transparent); }
+      .label { font-size: 17px; font-weight: 600; }
+      .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+      h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+      .grid { display: grid; grid-template-columns: 108px 1fr; gap: 6px 14px; margin-bottom: 22px; }
+      .grid dt { color: var(--muted); }
+      .grid dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-all; }
+      #log {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        max-height: 220px;
+        overflow-y: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+      #log div { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+      #log div:last-child { border-bottom: 0; }
+      #log .empty { color: var(--muted); font-family: inherit; }
+      .start { color: var(--active); }
+    </style>
+  </head>
+  <body>
+    <h1>Meeting Detection</h1>
+
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <div>
+        <div class="label" id="label">Waiting for first detection cycle…</div>
+        <div class="sub" id="sub">The engine polls every 2 seconds.</div>
+      </div>
+    </div>
+
+    <h2>Last detection</h2>
+    <dl class="grid">
+      <dt>App</dt><dd id="app">—</dd>
+      <dt>Reason</dt><dd id="reason">—</dd>
+      <dt>Meeting URL</dt><dd id="url">—</dd>
+      <dt>Poll cost</dt><dd id="cost">—</dd>
+    </dl>
+
+    <h2>Events</h2>
+    <div id="log"><div class="empty">No meeting events yet. Join a meeting to see one.</div></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let logged = 0;
+
+      window.meetingDetection.onStatus(({ active, details, pollCostMs }) => {
+        $("dot").classList.toggle("on", active);
+        $("label").textContent = active ? "In a meeting" : "Not in a meeting";
+        $("sub").textContent = active
+          ? `Detected via ${details?.reason ?? "unknown"}`
+          : "The engine polls every 2 seconds.";
+        $("app").textContent = details?.appName || "—";
+        $("reason").textContent = details?.reason || "—";
+        $("url").textContent = details?.meetingUrl || "—";
+        $("cost").textContent =
+          pollCostMs != null ? `${pollCostMs.toFixed(4)} ms` : "—";
+
+        // Confirm back to main that the update arrived and rendered.
+        window.meetingDetection.ack({ active, reason: details?.reason ?? null });
+      });
+
+      window.meetingDetection.onMeetingEvent((event) => {
+        if (logged === 0) $("log").innerHTML = "";
+        logged += 1;
+        const row = document.createElement("div");
+        row.className = event.type === "start" ? "start" : "";
+        const time = new Date(event.at).toLocaleTimeString();
+        row.textContent =
+          event.type === "start"
+            ? `${time}  MEETING STARTED  ${event.appName ?? ""} ${event.meetingUrl ?? ""}`.trim()
+            : `${time}  MEETING ENDED`;
+        $("log").prepend(row);
+      });
+    </script>
+  </body>
+</html>

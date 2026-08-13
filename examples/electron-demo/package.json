@@ -1,0 +1,17 @@
+{
+  "name": "meeting-detection-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Electron demo app for meeting-detection",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "selftest": "electron . --selftest"
+  },
+  "dependencies": {
+    "meeting-detection": "file:../.."
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
