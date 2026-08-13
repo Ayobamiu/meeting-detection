@@ -7,7 +7,9 @@ license = "MIT"
 repository = ""
 
 [lib]
-crate-type = ["cdylib"]
+# "lib" is included alongside "cdylib" so `cargo test` can build the crate as a
+# normal Rust library and run the unit tests.
+crate-type = ["cdylib", "lib"]
 
 [dependencies]
 # napi-rs for JavaScript bindings

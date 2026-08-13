@@ -1,20 +1,29 @@
 // macOS-specific implementation
 // Uses CoreAudio for microphone, system_profiler for camera, sysinfo for processes
 
-use crate::config::is_browser_process_macos;
 use crate::error::DetectionError;
 use crate::platform::PlatformDetector;
 use std::process::Command;
-use sysinfo::System;
+use std::sync::Mutex;
+use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
 pub struct MacOSDetector {
-    system: System,
+    /// Reused across cycles so each poll refreshes an existing snapshot instead
+    /// of building a whole new one. Behind a Mutex because `PlatformDetector`
+    /// takes `&self` and the engine polls from a background task.
+    system: Mutex<System>,
 }
 
 impl MacOSDetector {
     pub fn new() -> Result<Self, DetectionError> {
+        // Only process data is ever read, so skip the CPU/memory/disk/network
+        // probes that `System::new_all` would perform on every refresh.
+        let system = System::new_with_specifics(
+            RefreshKind::new().with_processes(ProcessRefreshKind::new()),
+        );
+
         Ok(Self {
-            system: System::new_all(),
+            system: Mutex::new(system),
         })
     }
 }
@@ -61,19 +70,26 @@ impl PlatformDetector for MacOSDetector {
         Ok(has_camera_app)
     }
 
+    /// Returns the set of running process names, deduplicated.
+    ///
+    /// Deduplication matters for the caller: Chrome alone contributes dozens of
+    /// identically named helper processes, and the detector does per-name work
+    /// for each entry it is handed.
     fn get_running_processes(&self) -> Result<Vec<String>, DetectionError> {
-        // Refresh system info
-        let mut system = System::new_all();
-        system.refresh_all();
-        
-        let mut processes = Vec::new();
-        
-        for (_, process) in system.processes() {
-            // Get process name
-            processes.push(process.name().to_string());
-        }
-        
-        Ok(processes)
+        let mut system = self
+            .system
+            .lock()
+            .map_err(|e| DetectionError::SystemError(format!("Process list poisoned: {}", e)))?;
+
+        system.refresh_processes_specifics(ProcessRefreshKind::new());
+
+        let names: std::collections::HashSet<String> = system
+            .processes()
+            .values()
+            .map(|process| process.name().to_string())
+            .collect();
+
+        Ok(names.into_iter().collect())
     }
 
     fn get_visible_windows(&self) -> Result<Vec<String>, DetectionError> {
@@ -131,38 +147,45 @@ impl PlatformDetector for MacOSDetector {
 // Helper functions for browser and network detection (not part of trait yet)
 // These can be called directly when needed
 
-/// Check if a process is a browser using macOS app categories
-pub fn is_browser_process(process_name: &str) -> Result<bool, DetectionError> {
-    is_browser_process_macos(process_name)
+/// Check whether an app is in the running-process list (case-insensitive).
+fn is_app_running(processes: &[String], app_name: &str) -> bool {
+    processes
+        .iter()
+        .any(|process| process.eq_ignore_ascii_case(app_name))
 }
 
 /// Get browser tab URLs for meeting detection
 /// Returns map of browser name -> list of URLs
 /// This is exported from platform module for use in detector
-pub fn get_browser_tab_urls() -> Result<std::collections::HashMap<String, Vec<String>>, DetectionError> {
+///
+/// Only browsers present in `processes` are queried. Two reasons: sending an
+/// Apple Event to an app that is installed but not running *launches* it, so an
+/// unguarded poll would start a browser on the user's machine every 2 seconds;
+/// and each `osascript` spawn costs ~150ms that is pure waste for a browser
+/// nobody is using.
+pub fn get_browser_tab_urls(
+    processes: &[String],
+) -> Result<std::collections::HashMap<String, Vec<String>>, DetectionError> {
     let mut browser_urls = std::collections::HashMap::new();
-    
-    // Get URLs from Chrome
-    if let Ok(chrome_urls) = get_chrome_tab_urls() {
-        if !chrome_urls.is_empty() {
-            browser_urls.insert("Google Chrome".to_string(), chrome_urls);
+
+    let sources: [(&str, fn() -> Result<Vec<String>, DetectionError>); 3] = [
+        ("Google Chrome", get_chrome_tab_urls),
+        ("Safari", get_safari_tab_urls),
+        ("Microsoft Edge", get_edge_tab_urls),
+    ];
+
+    for (browser_name, get_urls) in sources {
+        if !is_app_running(processes, browser_name) {
+            continue;
+        }
+
+        if let Ok(urls) = get_urls() {
+            if !urls.is_empty() {
+                browser_urls.insert(browser_name.to_string(), urls);
+            }
         }
     }
-    
-    // Get URLs from Safari
-    if let Ok(safari_urls) = get_safari_tab_urls() {
-        if !safari_urls.is_empty() {
-            browser_urls.insert("Safari".to_string(), safari_urls);
-        }
-    }
-    
-    // Get URLs from Edge
-    if let Ok(edge_urls) = get_edge_tab_urls() {
-        if !edge_urls.is_empty() {
-            browser_urls.insert("Microsoft Edge".to_string(), edge_urls);
-        }
-    }
-    
+
     Ok(browser_urls)
 }
 
@@ -286,3 +309,56 @@ fn get_edge_tab_urls() -> Result<Vec<String>, DetectionError> {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matches_app_names_case_insensitively() {
+        let processes = vec!["Google Chrome".to_string(), "Safari".to_string()];
+
+        assert!(is_app_running(&processes, "Google Chrome"));
+        assert!(is_app_running(&processes, "safari"));
+        assert!(!is_app_running(&processes, "Microsoft Edge"));
+    }
+
+    /// Manual diagnostic against the live machine — browsers must actually be
+    /// running for it to say anything, so it is not part of the CI suite.
+    /// Run with: cargo test -- --ignored --nocapture
+    ///
+    /// Reports counts only. Tab URLs are the user's browsing history.
+    #[test]
+    #[ignore]
+    fn probe_live_machine() {
+        use crate::config::{is_browser_process, is_meeting_process};
+        use crate::network::get_all_network_connections;
+
+        let detector = MacOSDetector::new().unwrap();
+        let processes = detector.get_running_processes().unwrap();
+        println!("\nunique process names: {}", processes.len());
+
+        let candidates: Vec<&String> = processes
+            .iter()
+            .filter(|name| is_meeting_process(name) && !is_browser_process(name))
+            .collect();
+        println!("tier 1 candidates: {:?}", candidates);
+
+        let connections = get_all_network_connections().unwrap();
+        println!("network connections parsed: {}", connections.len());
+
+        for candidate in &candidates {
+            let matched = connections
+                .iter()
+                .filter(|c| &&c.process_name == candidate)
+                .count();
+            println!("  {} -> {} connections matched by name", candidate, matched);
+        }
+
+        let tabs = get_browser_tab_urls(&processes).unwrap();
+        for (browser, urls) in &tabs {
+            println!("tier 2: {} -> {} tabs readable", browser, urls.len());
+        }
+        assert!(!processes.is_empty());
+    }
+}

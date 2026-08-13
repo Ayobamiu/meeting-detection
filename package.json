@@ -1,19 +1,36 @@
 {
   "name": "meeting-detection",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "macOS meeting detection engine for Electron/Node.js",
   "main": "index.js",
+  "types": "index.d.ts",
   "repository": {
     "type": "git",
     "url": "https://github.com/Ayobamiu/meeting-detection.git"
   },
   "homepage": "https://github.com/Ayobamiu/meeting-detection",
-  "types": "index.d.ts",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "meeting-detection.darwin-universal.node",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "install": "napi build --platform --release",
-    "test": "node test.js"
+    "build:universal": "napi build --platform --release --target aarch64-apple-darwin && napi build --platform --release --target x86_64-apple-darwin && lipo -create -output meeting-detection.darwin-universal.node meeting-detection.darwin-arm64.node meeting-detection.darwin-x64.node",
+    "test": "node test/smoke.js",
+    "test:rust": "cargo test",
+    "watch": "node test.js",
+    "prepublishOnly": "npm run build:universal && npm run test:rust && npm test"
   },
   "keywords": [
     "meeting",
@@ -38,8 +55,12 @@
   "napi": {
     "name": "meeting-detection",
     "triples": {
-      "defaults": true,
-      "additional": []
+      "defaults": false,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "universal-apple-darwin"
+      ]
     }
   }
 }

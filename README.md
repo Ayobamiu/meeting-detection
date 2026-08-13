@@ -27,7 +27,7 @@ A macOS meeting detection engine for Electron and Node.js applications. Built wi
 npm install meeting-detection
 ```
 
-The package will automatically build native binaries for your platform during installation.
+Ships a prebuilt universal binary covering Apple Silicon and Intel. No Rust toolchain and no compile step at install time.
 
 ## Usage
 
@@ -279,16 +279,17 @@ The engine uses a **two-tier decision tree** to accurately detect active meeting
 
 The app may need the following permissions:
 
-- **Accessibility**: For browser tab URL detection (System Preferences → Security & Privacy → Accessibility)
-  - Required for AppleScript to access browser tabs
-  - Grant permission to Terminal/Node.js when prompted
+- **Automation**: For browser tab URL detection (System Settings → Privacy & Security → Automation)
+  - Granted per-browser to your app, so AppleScript can read open tabs
+  - macOS prompts on the first detection cycle that finds a supported browser running
+  - Without it, native-app detection still works but browser-based meetings are not detected
 
 **Note**: The engine does not require microphone or camera permissions. It detects meetings through network activity and browser tabs.
 
 ## Limitations
 
 - **macOS only**: Currently supports macOS (Intel and Apple Silicon) only
-- **Browser detection**: Requires Accessibility permission for AppleScript to access browser tabs
+- **Browser detection**: Requires Automation permission for AppleScript to access browser tabs
 - **Network detection**: Uses `lsof` command which may require appropriate system permissions
 - **Polling interval**: Detection runs every 2 seconds (not real-time)
 

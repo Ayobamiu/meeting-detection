@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Rust unit tests
+        run: npm run test:rust
+
+      - name: Build universal binary
+        run: npm run build:universal
+
+      - name: Verify binary covers both architectures
+        run: lipo -archs meeting-detection.darwin-universal.node | tee /dev/stderr | grep -q x86_64 && lipo -archs meeting-detection.darwin-universal.node | grep -q arm64
+
+      - name: Smoke test
+        run: npm test
+
+      # Guards the failure that shipped in 0.1.0: an `install` script invoked
+      # `napi`, which is a devDependency and therefore absent on a consumer's
+      # machine, so `npm install meeting-detection` failed with exit code 127
+      # for every user. Installing the packed tarball into a clean project is
+      # the only check that would have caught it.
+      - name: Verify a clean consumer install
+        run: |
+          set -euo pipefail
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir -p "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          echo '{"name":"consumer","version":"1.0.0"}' > package.json
+          npm install "$RUNNER_TEMP"/meeting-detection-*.tgz
+          node -e "
+            const d = require('meeting-detection');
+            d.init();
+            if (typeof d.isMeetingActive() !== 'boolean') throw new Error('isMeetingActive did not return a boolean');
+            console.log('consumer install OK');
+          "

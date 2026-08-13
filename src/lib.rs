@@ -203,10 +203,13 @@ impl DetectionEngine {
         // Spawn background task to poll every 2 seconds
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(2));
-            
+            // If a cycle ever overruns the interval, wait a full period before
+            // the next one instead of firing back-to-back to catch up.
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
             while is_running.load(std::sync::atomic::Ordering::Acquire) {
                 interval.tick().await;
-                
+
                 match detector.detect_with_state() {
                     Ok((result, state_change)) => {
                         // Store last detection result BEFORE sending event
@@ -250,10 +253,24 @@ impl DetectionEngine {
     }
 
     pub fn is_meeting_active(&self) -> StdResult<bool, DetectionError> {
-        match self.detector.get_current_state()? {
-            MeetingState::Active => Ok(true),
-            MeetingState::Inactive => Ok(false),
+        // While the poller is running, serve its most recent snapshot. Running
+        // a fresh detection here would block the calling thread — the main
+        // thread, for an Electron app — for the length of a full cycle.
+        if self.is_running.load(std::sync::atomic::Ordering::Acquire) {
+            let guard = self.last_result.lock().unwrap();
+            if let Some(result) = guard.as_ref() {
+                return Ok(result.is_meeting_active);
+            }
         }
+
+        // Either `init()` was never called, or the poller has not finished its
+        // first cycle. Detect synchronously so a caller that never starts the
+        // poller still gets a live answer rather than a frozen one.
+        let result = self.detector.detect()?;
+        let is_active = result.is_meeting_active;
+        *self.last_result.lock().unwrap() = Some(result);
+
+        Ok(is_active)
     }
 
     pub fn add_start_callback(&self, callback: ThreadsafeFunction<JsDetectionDetails>) {
