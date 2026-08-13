@@ -199,7 +199,7 @@ fn get_chrome_tab_urls() -> Result<Vec<String>, DetectionError> {
                     set end of urlList to URL of t
                 end repeat
             end repeat
-            set AppleScript's text item delimiters to ", "
+            set AppleScript's text item delimiters to linefeed
             set resultString to urlList as string
             set AppleScript's text item delimiters to ""
             return resultString
@@ -216,9 +216,11 @@ fn get_chrome_tab_urls() -> Result<Vec<String>, DetectionError> {
             let urls_str = String::from_utf8(output.stdout)
                 .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?;
             
-            // Parse comma-separated URLs
+            // URLs are newline-separated. Splitting on "," corrupted any URL
+            // containing a comma: two tabs became four fragments, and a
+            // fragment could coincidentally match a meeting pattern.
             let urls: Vec<String> = urls_str
-                .split(',')
+                .lines()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
@@ -239,7 +241,7 @@ fn get_safari_tab_urls() -> Result<Vec<String>, DetectionError> {
                     set end of urlList to URL of t
                 end repeat
             end repeat
-            set AppleScript's text item delimiters to ", "
+            set AppleScript's text item delimiters to linefeed
             set resultString to urlList as string
             set AppleScript's text item delimiters to ""
             return resultString
@@ -256,9 +258,11 @@ fn get_safari_tab_urls() -> Result<Vec<String>, DetectionError> {
             let urls_str = String::from_utf8(output.stdout)
                 .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?;
             
-            // Parse comma-separated URLs
+            // URLs are newline-separated. Splitting on "," corrupted any URL
+            // containing a comma: two tabs became four fragments, and a
+            // fragment could coincidentally match a meeting pattern.
             let urls: Vec<String> = urls_str
-                .split(',')
+                .lines()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
@@ -279,7 +283,7 @@ fn get_edge_tab_urls() -> Result<Vec<String>, DetectionError> {
                     set end of urlList to URL of t
                 end repeat
             end repeat
-            set AppleScript's text item delimiters to ", "
+            set AppleScript's text item delimiters to linefeed
             set resultString to urlList as string
             set AppleScript's text item delimiters to ""
             return resultString
@@ -296,9 +300,11 @@ fn get_edge_tab_urls() -> Result<Vec<String>, DetectionError> {
             let urls_str = String::from_utf8(output.stdout)
                 .map_err(|e| DetectionError::SystemError(format!("Invalid UTF-8: {}", e)))?;
             
-            // Parse comma-separated URLs
+            // URLs are newline-separated. Splitting on "," corrupted any URL
+            // containing a comma: two tabs became four fragments, and a
+            // fragment could coincidentally match a meeting pattern.
             let urls: Vec<String> = urls_str
-                .split(',')
+                .lines()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
