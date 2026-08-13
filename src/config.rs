@@ -155,15 +155,18 @@ fn host_matches(host: &str, domain: &str) -> bool {
 /// chat, `/_#/calendar` and `/_#/meetings` list meetings without joining one,
 /// and the app root is just Teams being open. Treating those as meetings means
 /// anyone who leaves Teams open in a tab reads as permanently in a meeting.
+/// Each entry must be specific enough that it cannot appear in a navigation
+/// route. A bare "/meet/" was removed after the equivalent Webex pattern
+/// matched the Webex hub at `/webappng/hub/meeting/home`; the same shape of
+/// mistake is available here, and these routes are only worth adding with an
+/// observed in-meeting URL to back them.
 fn get_teams_meeting_routes() -> Vec<&'static str> {
     vec![
-        "/l/meetup-join/",    // join link, and the in-call route
-        "/meetup-join/",      // same route without the /l prefix
-        "/pre-join-calling/", // join screen
-        "/modern-calling/",   // 1:1 and group calls
+        "/l/meetup-join/",         // join link, and the in-call route
+        "/meetup-join/",           // same route without the /l prefix
+        "/pre-join-calling/",      // join screen
+        "/modern-calling/",        // 1:1 and group calls
         "/light-meetings/launch/", // teams.live.com anonymous join
-        "/meet-now/",
-        "/meet/", // note: does not match "/meetings/" — see ParsedUrl::route
     ]
 }
 
@@ -278,22 +281,27 @@ pub fn is_meeting_url(url: &str) -> bool {
     }
 
     // Zoom web client. Native Zoom is handled by network detection in Tier 1.
+    // Anchored for the same reason as Webex: join routes start the path.
     if host_matches(&parsed.host, "zoom.us") {
         return ["/j/", "/s/", "/wc/"]
             .iter()
-            .any(|&route| parsed.route.contains(route));
+            .any(|&route| parsed.route.starts_with(route));
     }
 
     // Webex. Subdomains are per-site and per-region (meet1655.webex.com), so
     // every webex.com host is in scope and the route decides.
+    //
+    // Join routes sit at the root of the path, so this anchors with
+    // `starts_with`. Matching anywhere in the route is what made the Webex hub
+    // read as a meeting: `/webappng/hub/meeting/home` contains "/meeting/".
+    //
+    // `/webappng` is excluded — the previous pattern list labelled it "Visitor
+    // dashboard (after meeting)" while still counting it as a meeting — as is
+    // `/meetings`, which lists meetings rather than joining one.
     if host_matches(&parsed.host, "webex.com") {
-        // `/webappng` is dropped on purpose: the previous pattern list labelled
-        // it "Visitor dashboard (after meeting)" while still counting it as a
-        // meeting. `/meetings` is dropped for the same reason — it lists
-        // meetings rather than joining one, and does not match "/meeting/".
-        return ["/wbxmjs/joinservice/", "/meet/", "/meeting/", "/join/"]
+        return ["/wbxmjs/joinservice/", "/meet/", "/join/"]
             .iter()
-            .any(|&route| parsed.route.contains(route));
+            .any(|&route| parsed.route.starts_with(route));
     }
 
     false
@@ -468,7 +476,9 @@ mod tests {
             "https://teams.cloud.microsoft/_#/modern-calling/19:abc",
             "https://teams.live.com/light-meetings/launch?p=abc123",
             "https://teams.live.com/v2/?meetingjoin=true",
-            "https://teams.microsoft.com/_#/meet",
+            // NOTE: "/_#/meet" was asserted here from the original pattern
+            // list, which also claimed "/_#/conversations" (chat) was a
+            // meeting. Removed pending an observed in-meeting URL.
         ] {
             assert!(is_meeting_url(url), "{} must be a meeting", url);
         }
@@ -506,13 +516,35 @@ mod tests {
         assert!(!is_meeting_url("https://webex.com.attacker.net/meet/someone"));
     }
 
+    /// Observed on a real logged-in session. The Webex hub reported an active
+    /// meeting because the rule tested "/meeting/" anywhere in the route, and
+    /// "/webappng/hub/meeting/home" contains it. Join routes are anchored to
+    /// the start of the path now.
+    #[test]
+    fn webex_hub_is_not_a_meeting() {
+        assert!(!is_meeting_url(
+            "https://userhub-b.webex.com/webappng/hub/meeting/home"
+        ));
+        assert!(!is_meeting_url("https://userhub-b.webex.com/webappng/hub/insights"));
+        assert!(!is_meeting_url("https://web.webex.com/meetings"));
+    }
+
+    /// Observed on a real logged-in session: the Teams personal web app home.
+    #[test]
+    fn teams_web_app_home_is_not_a_meeting() {
+        assert!(!is_meeting_url("https://teams.live.com/v2/"));
+    }
+
     #[test]
     fn zoom_and_webex_meeting_routes() {
         assert!(is_meeting_url("https://zoom.us/j/1234567890"));
         assert!(is_meeting_url("https://zoom.us/s/1234567890"));
         assert!(is_meeting_url("https://webex.com/meet/someone"));
-        // Listing pages are not meetings.
+        assert!(is_meeting_url("https://acme.webex.com/join/someone"));
+        // Listing and navigation pages are not meetings.
         assert!(!is_meeting_url("https://web.webex.com/meetings?autosignin=true"));
+        assert!(!is_meeting_url("https://acme.webex.com/webappng/hub/meeting/home"));
+        assert!(!is_meeting_url("https://zoom.us/profile/j/setting"));
         assert!(!is_meeting_url("https://zoom.us/profile"));
         assert!(!is_meeting_url("https://zoom.us/"));
     }
