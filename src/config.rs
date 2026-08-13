@@ -516,6 +516,35 @@ mod tests {
         assert!(!is_meeting_url("https://webex.com.attacker.net/meet/someone"));
     }
 
+    /// Both URLs observed on a real Webex session: the hub before joining, and
+    /// the web client while in the meeting. Identifiers are replaced with
+    /// placeholders; the path shape is what matters.
+    ///
+    /// These two differing only deep in the path is precisely why join routes
+    /// are anchored — "/webappng/hub/meeting/home" and the join route both
+    /// contain "meeting".
+    #[test]
+    fn webex_hub_and_live_meeting_are_distinguished() {
+        // In a meeting (Webex web client).
+        assert!(is_meeting_url(
+            "https://userhub-b.webex.com/wbxmjs/joinservice/sites/examplesite/meeting/download/00000000000000000000000000000000?siteurl=examplesite&theme=dark"
+        ));
+
+        // Hub, before joining anything.
+        assert!(!is_meeting_url(
+            "https://userhub-b.webex.com/webappng/hub/meeting/home"
+        ));
+
+        // Immediately after leaving. Webex lands on a dashboard whose path is
+        // /webappng/sites/<site>/dashboard/landing — note it is NOT a meeting,
+        // even though it sits under /webappng/sites/ and carries the meeting
+        // uuid in the query. A "/webappng/sites/" route would report the user
+        // as still in the meeting they just left.
+        assert!(!is_meeting_url(
+            "https://examplesite.webex.com/webappng/sites/examplesite/dashboard/landing?siteurl=examplesite&type=Host&uuid=00000000000000000000000000000000"
+        ));
+    }
+
     /// Observed on a real logged-in session. The Webex hub reported an active
     /// meeting because the rule tested "/meeting/" anywhere in the route, and
     /// "/webappng/hub/meeting/home" contains it. Join routes are anchored to
