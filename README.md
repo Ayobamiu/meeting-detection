@@ -10,12 +10,16 @@ A macOS meeting detection engine for Electron and Node.js applications. Built wi
 
 ## Supported Platforms & Services
 
-| Service             | Native App | Browser | Detection Method                                                                                                             |
-| ------------------- | ---------- | ------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Zoom**            | ✅         | ✅      | Tier 1: Network connections (UDP port 8801)<br>Tier 2: URL patterns (`zoom.us/j/`, `zoom.us/s/`)                             |
-| **Google Meet**     | ❌         | ✅      | Tier 2: URL patterns with meeting code validation (`meet.google.com/xxx-yyyy-zzz`)                                           |
-| **Microsoft Teams** | ✅         | ✅      | Tier 1: Network connections (STUN/TURN ports)<br>Tier 2: URL patterns (`teams.live.com/v2/`, `teams.microsoft.com/_#/meet/`) |
-| **Webex**           | ✅         | ✅      | Tier 1: Network connections (video ports)<br>Tier 2: URL patterns (`*.webex.com/webapp/`, `*.webex.com/meet/`)               |
+| Service             | Native App | Browser | Detection Method                                                                                                          |
+| ------------------- | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Zoom**            | ✅         | ✅      | Tier 1: Network connections (UDP port 8801)<br>Tier 2: `zoom.us` host with `/j/`, `/s/`, or `/wc/`                        |
+| **Google Meet**     | ❌         | ✅      | Tier 2: `meet.google.com` host with a valid meeting code (`xxx-yyyy-zzz`)                                                 |
+| **Microsoft Teams** | ✅         | ✅      | Tier 1: Network connections (STUN/TURN ports)<br>Tier 2: Teams host with a meeting route (`/l/meetup-join`, `/pre-join-calling`, …) |
+| **Webex**           | ✅         | ✅      | Tier 1: Network connections (video ports)<br>Tier 2: `webex.com` host with a join route (`/wbxmjs/joinservice`, `/meet/`, …) |
+
+Teams is supported on `teams.microsoft.com`, `teams.live.com`, and the new unified **`teams.cloud.microsoft`** domain ([what is cloud.microsoft](https://support.microsoft.com/en-us/office/what-is-cloud-microsoft-7ba4c8b9-d062-4444-84a5-fca6c3006d2b)).
+
+Browser detection matches on **host and route separately**, never on the raw URL string. Having Teams, Webex, or Zoom merely *open* is not a meeting — chat, calendar, file, and dashboard views are excluded, and a page that only mentions a meeting domain (a search result, a forum link) never counts.
 
 **Supported Operating Systems:**
 
